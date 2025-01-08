@@ -8,7 +8,7 @@ use crate::sudoku::random::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     // row-wise indexing, ie) index i maps to cell (i // 9, i % 9)
-    cells: [u8; 81],
+    pub cells: [u8; 81],
 }
 
 impl Board {
