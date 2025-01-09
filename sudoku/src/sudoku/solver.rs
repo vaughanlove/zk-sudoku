@@ -164,7 +164,7 @@ impl DancingLinks {
         let mut prev = self.header.clone();
 
         // cell position constraints
-        println!("{}", prev.clone().borrow());
+        // println!("{}", prev.clone().borrow());
 
         // let first_header = Node::new_header(format!("R{}C{}", 0, 0));
 
@@ -177,6 +177,7 @@ impl DancingLinks {
             let header_name = format!("R{}C{}", (i / 9) + 1, (i % 9) + 1);
             let new_header = Node::new_header(header_name);
             Node::link_right(prev.clone(), new_header.clone()).expect("Linking failed");
+            Node::link_down(new_header.clone(), new_header.clone());
             prev = new_header;
             // if (i == 0) {
             //     Node::link_right(self.header.clone(), new_header);
@@ -187,6 +188,7 @@ impl DancingLinks {
             let header_name = format!("R{}#{}", i / 9 + 1, (i % 9) + 1);
             let new_header = Node::new_header(header_name);
             Node::link_right(prev.clone(), new_header.clone()).expect("Linking failed");
+            Node::link_down(new_header.clone(), new_header.clone());
             prev = new_header;
         }
         // column constraints - ie, col 1 has a 1, col 1 has a 2, etc
@@ -194,6 +196,7 @@ impl DancingLinks {
             let header_name = format!("C{}#{}", i / 9 + 1, (i % 9) + 1);
             let new_header = Node::new_header(header_name);
             Node::link_right(prev.clone(), new_header.clone()).expect("Linking failed");
+            Node::link_down(new_header.clone(), new_header.clone());
             prev = new_header;
         }
         // box contarints - ie, cell 1 has a 1, etc
@@ -201,6 +204,7 @@ impl DancingLinks {
             let header_name = format!("B{}#{}", i / 9 + 1, (i % 9) + 1);
             let new_header = Node::new_header(header_name);
             Node::link_right(prev.clone(), new_header.clone()).expect("Linking failed");
+            Node::link_down(new_header.clone(), new_header.clone());
             prev = new_header;
         }
         assert!(
@@ -208,6 +212,107 @@ impl DancingLinks {
             "Header must have right link"
         );
         self
+    }
+
+    fn verify_header_row_is_circular(&self) -> Result<(), &'static str> {
+        let mut count = 0;
+        let mut next = self
+            .header
+            .clone()
+            .borrow()
+            .right
+            .clone()
+            .ok_or("no right link")?;
+        // go right
+        while (!Rc::ptr_eq(&self.header.clone(), &next.clone())) {
+            next = next
+                .clone()
+                .borrow()
+                .right
+                .clone()
+                .ok_or("right link broken")?;
+
+            if count == 1000 {
+                break;
+            }
+            count += 1;
+        }
+        count = 0;
+        // go left
+        while (!Rc::ptr_eq(&self.header.clone(), &next.clone())) {
+            next = next
+                .clone()
+                .borrow()
+                .left
+                .clone()
+                .ok_or("right link broken")?;
+
+            if count == 1000 {
+                break;
+            }
+            count += 1;
+        }
+        Ok(())
+    }
+
+    fn get_col(&self, col_name: &String) -> Result<Rc<RefCell<Node>>, &'static str> {
+        let mut count = 0;
+        let mut next = self
+            .header
+            .clone()
+            .borrow()
+            .right
+            .clone()
+            .ok_or("no right link")?;
+        // go right
+        while (!Rc::ptr_eq(&self.header.clone(), &next.clone())) {
+            next = next
+                .clone()
+                .borrow()
+                .right
+                .clone()
+                .ok_or("right link broken")?;
+            if String::eq(
+                next.clone().borrow().name.as_ref().ok_or("no name")?,
+                col_name,
+            ) {
+                return Ok(next.clone());
+            }
+            if count == 1000 {
+                break;
+            }
+            count += 1;
+        }
+
+        // Header row is not circular
+        Err("Header is not circular")
+    }
+    fn verify_column_is_circular(&self, col_name: &String) -> Result<bool, &'static str> {
+        let col_header = self.get_col(col_name).unwrap().clone();
+        println!("{}", col_header.clone().borrow());
+        let mut count = 0;
+        let mut next = col_header
+            .clone()
+            .borrow()
+            .down
+            .clone()
+            .ok_or("downward link broken")?;
+
+        while !Rc::ptr_eq(&col_header.clone(), &next.clone()) {
+            // println!("{}", count);
+            next = next
+                .clone()
+                .borrow()
+                .down
+                .clone()
+                .ok_or("downward link broken")?;
+            count += 1;
+
+            if count == 1000 {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
     // create the empty constraint matrix after initialization
     fn init_constraint_matrix(&mut self) -> Result<(), &'static str> {
@@ -222,7 +327,7 @@ impl DancingLinks {
             .ok_or("h link broken")?;
         // while the node doesn't point to itself (end of list)
         loop {
-            println!("{}", current.clone().borrow());
+            // println!("{}", current.clone().borrow());
             column_header_vec.push(current.clone());
             let next = {
                 let curr_ref = current.borrow();
@@ -243,16 +348,30 @@ impl DancingLinks {
                     let row_idx = 81 + row * 9 + num - 1;
                     let col_idx = 81 * 2 + col * 9 + num - 1;
                     let box_idx = 81 * 3 + ((row / 3) * 3 + col / 3) * 9 + num - 1;
-                    println!(
-                        "Placement: ({}, {}, {}) -> indices: cell={}, row={}, col={}, box={}",
-                        row, col, num, cell_idx, row_idx, col_idx, box_idx
-                    );
+
                     let nodes: Vec<Rc<RefCell<Node>>> = vec![
                         Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
                         Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
                         Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
                         Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
                     ];
+
+                    // horizontally link the nodes
+                    let first = nodes[0].clone();
+                    first.borrow_mut().left = Some(nodes[3].clone());
+                    first.borrow_mut().right = Some(nodes[1].clone());
+
+                    for i in 1..3 {
+                        // nodes 1 and 2
+                        let curr = nodes[i].clone();
+                        curr.borrow_mut().left = Some(nodes[i - 1].clone());
+                        curr.borrow_mut().right = Some(nodes[i + 1].clone());
+                    }
+
+                    // Close the circle with last node
+                    let last = nodes[3].clone();
+                    last.borrow_mut().left = Some(nodes[2].clone());
+                    last.borrow_mut().right = Some(nodes[0].clone());
 
                     for (&idx, node) in [cell_idx, row_idx, col_idx, box_idx]
                         .iter()
@@ -270,23 +389,26 @@ impl DancingLinks {
 
                         // the node needs to link to the bottom of the column.
                         let header_debug = col_header.clone();
-                        println!(
-                            "Header '{}': up exists? {}",
-                            header_debug
-                                .borrow()
-                                .name
-                                .as_ref()
-                                .unwrap_or(&"unnamed".to_string()),
-                            header_debug.borrow().up.is_some()
-                        );
-                        let last = col_header
+                        // println!(
+                        //     "Header '{}': up exists? {}",
+                        //     header_debug
+                        //         .borrow()
+                        //         .name
+                        //         .as_ref()
+                        //         .unwrap_or(&"unnamed".to_string()),
+                        //     header_debug.borrow().up.is_some()
+                        // );
+                        let prev_last = col_header
                             .borrow()
                             .up
                             .clone()
                             .ok_or("error")
                             .expect("borrow col_header");
-                        Node::link_down(last.clone(), node.clone());
-                        Node::link_down(node.clone(), col_header.clone());
+                        Node::link_down(prev_last.clone(), node.clone());
+                        // Node::link_down(node.clone(), col_header.clone());
+                        // println!("{}", node.clone().borrow());
+                        // println!("{}", prev_last.clone().borrow());
+                        // println!("{}", col_header.clone().borrow());
                         col_header.borrow_mut().size += 1;
                     }
                     // Link nodes horizontally (circular)
@@ -300,6 +422,54 @@ impl DancingLinks {
         }
         Ok(())
     }
+    fn solve(&self) -> Result<(), &'static str> {
+        // looking at this, I should abstract the borrowing right/left and checking to helper functions.
+        let head = self.header.clone();
+        // if we have solved the sparse matrix
+        if (Rc::ptr_eq(
+            &head.borrow().right.clone().ok_or("right link broken")?,
+            &head.clone(),
+        )) {
+            return Ok(());
+        } else {
+            let mut column = head.borrow().right.clone().ok_or("right lnk broken")?;
+            // cover(column) - todo write cover
+            // println!("{}", column.clone().borrow());
+
+            while (!Rc::ptr_eq(
+                &column
+                    .clone()
+                    .borrow()
+                    .down
+                    .clone()
+                    .ok_or("down link failed")?,
+                &column
+                    .clone()
+                    .borrow()
+                    .column_header
+                    .clone()
+                    .ok_or("matrix init failed")?,
+            )) {
+                // println!("{}", column.clone().borrow());
+                column = column
+                    .clone()
+                    .borrow()
+                    .down
+                    .clone()
+                    .ok_or("down link broken")?;
+            }
+        }
+
+        Ok(())
+    }
+
+    // note to self: right now I have every possible constraint satisfied,
+    // if I want to solve a board that has clues already in it, simply remove constraints that conflict
+    // with the hints that I have.
+    // so if I have a clue that a 5 is at position (6,7), then I keep the constraint that
+    // corresponds to that exact constraint, and remove every other constraint at (6,7) and box for 5 etc.
+    // DLX can start at any submatrix, so hints are basicually just choosing the
+    // first n steps of the puzzle.
 
     // fn initialize_empty_rows(&self) -> Self {
     //     // the best way to do this is column-wise
@@ -460,13 +630,29 @@ mod solver_tests {
     #[test]
     fn test_dl_print() {
         let mut dl = DancingLinks::new();
-        println!("After new(): {}", dl);
+        // println!("After new(): {}", dl);
 
         dl = dl.init_header_row();
-        println!("After init_header_row(): {}", dl);
+        // println!("After init_header_row(): {}", dl);
 
         dl.init_constraint_matrix();
 
-        println!("After init_constraint_matrix(): {}", dl);
+        // println!("After init_constraint_matrix(): {}", dl);
+        dl.solve();
+    }
+    #[test]
+    fn test_row_circular() {
+        let mut dl = DancingLinks::new();
+        dl = dl.init_header_row();
+        dl.init_constraint_matrix();
+
+        // assert!(dl.verify_header_row_is_circular().is_ok());
+        let node = dl.get_col(&"C7#6".to_string());
+        // println!("{}", node.unwrap().borrow());
+        let is_vertically_circular = dl.verify_column_is_circular(&"R6#3".to_string());
+        // println!("{:?}", is_vertically_circular);
+        // assert!(is_vertically_circular.unwrap());
+
+        dl.solve();
     }
 }
