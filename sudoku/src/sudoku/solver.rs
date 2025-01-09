@@ -20,8 +20,7 @@
 // ie, having no conflicting 1 in the columns means that "box has a 1 in position 1" can only exist once in the solution.
 use crate::sudoku::board::Board;
 use std::cell::RefCell;
-use std::fmt;
-use std::ops::Deref;
+use std::fmt::{self, write};
 use std::rc::Rc;
 struct Node {
     column_header: Option<Rc<RefCell<Node>>>,
@@ -72,6 +71,7 @@ impl Node {
     ) -> Result<(), &'static str> {
         // borrow the Rc of the node C, where A - N - C, is self_rc, new, self_rc.right
         let old_right = current
+            .clone()
             .borrow()
             .right
             .clone()
@@ -79,10 +79,10 @@ impl Node {
 
         // borrow the reference counter to the RefCell of type Node, set left and right to maintain circular references.
         right.borrow_mut().left = Some(current.clone());
-        right.borrow_mut().right = Some(old_right);
+        right.borrow_mut().right = Some(old_right.clone());
 
-        current.borrow_mut().left = Some(right);
-
+        current.borrow_mut().right = Some(right.clone());
+        old_right.borrow_mut().left = Some(right.clone());
         Ok(())
     }
 
@@ -91,13 +91,12 @@ impl Node {
             .borrow()
             .left
             .clone()
-            .expect("Node must be initialized in circular structure");
-        {
-            let mut new_node = left.borrow_mut();
-            new_node.left = Some(old_left);
-            new_node.right = Some(current.clone());
-        }
-        current.borrow_mut().right = Some(left);
+            .ok_or("Node must be initialized in circular structure")?;
+
+        left.borrow_mut().left = Some(old_left);
+        left.borrow_mut().right = Some(current.clone());
+
+        current.borrow_mut().left = Some(left);
         Ok(())
     }
 
@@ -118,17 +117,18 @@ impl Node {
     }
 
     fn link_down(current: Rc<RefCell<Node>>, down: Rc<RefCell<Node>>) -> Result<(), &'static str> {
-        let old_down = current
+        let old = current
+            .clone()
             .borrow()
             .down
             .clone()
-            .expect("Node must be initialized in circular structure.");
-        {
-            let mut new_down = down.borrow_mut();
-            new_down.down = Some(old_down);
-            new_down.up = Some(current.clone());
-        }
-        current.borrow_mut().up = Some(down);
+            .ok_or("failed to unwrap old")?;
+
+        down.borrow_mut().down = Some(old.clone());
+        down.borrow_mut().up = Some(current.clone());
+
+        current.borrow_mut().down = Some(down.clone());
+        old.borrow_mut().up = Some(down.clone());
         Ok(())
     }
 }
@@ -162,14 +162,19 @@ impl DancingLinks {
     /// This function instantiates the skeleton of the constraint header column and returns the DancingLinks root.
     fn init_header_row(mut self) -> Self {
         let mut prev = self.header.clone();
+
         // cell position constraints
-        // Debug first link
-        let first_header = Node::new_header(format!("R{}C{}", 0, 1));
-        Node::link_right(prev.clone(), first_header.clone()).expect("First link failed");
-        prev = first_header;
-        for i in 1..81 {
+        println!("{}", prev.clone().borrow());
+
+        // let first_header = Node::new_header(format!("R{}C{}", 0, 0));
+
+        // Node::link_right(prev.clone(), first_header.clone()).expect("First link failed");
+
+        // prev = first_header;
+        // println!("{}", prev.clone().borrow());
+        for i in 0..81 {
             // link h to first position
-            let header_name = format!("R{}C{}", i / 9, (i % 9) + 1);
+            let header_name = format!("R{}C{}", (i / 9) + 1, (i % 9) + 1);
             let new_header = Node::new_header(header_name);
             Node::link_right(prev.clone(), new_header.clone()).expect("Linking failed");
             prev = new_header;
@@ -179,21 +184,21 @@ impl DancingLinks {
         }
         // row constraints - ie, row 1 has a 1, row 1 has a 2, etc
         for i in 0..81 {
-            let header_name = format!("R{}#{}", i / 9, (i % 9) + 1);
+            let header_name = format!("R{}#{}", i / 9 + 1, (i % 9) + 1);
             let new_header = Node::new_header(header_name);
             Node::link_right(prev.clone(), new_header.clone()).expect("Linking failed");
             prev = new_header;
         }
         // column constraints - ie, col 1 has a 1, col 1 has a 2, etc
-        for i in 0..8 {
-            let header_name = format!("C{}#{}", i / 9, (i % 9) + 1);
+        for i in 0..81 {
+            let header_name = format!("C{}#{}", i / 9 + 1, (i % 9) + 1);
             let new_header = Node::new_header(header_name);
             Node::link_right(prev.clone(), new_header.clone()).expect("Linking failed");
             prev = new_header;
         }
         // box contarints - ie, cell 1 has a 1, etc
         for i in 0..81 {
-            let header_name = format!("B{}#{}", i / 9, (i % 9) + 1);
+            let header_name = format!("B{}#{}", i / 9 + 1, (i % 9) + 1);
             let new_header = Node::new_header(header_name);
             Node::link_right(prev.clone(), new_header.clone()).expect("Linking failed");
             prev = new_header;
@@ -204,9 +209,148 @@ impl DancingLinks {
         );
         self
     }
+    // create the empty constraint matrix after initialization
+    fn init_constraint_matrix(&mut self) -> Result<(), &'static str> {
+        let mut column_header_vec: Vec<Rc<RefCell<Node>>> = Vec::with_capacity(81 * 4 + 1);
 
+        let mut current = self
+            .header
+            .clone()
+            .borrow()
+            .right
+            .clone()
+            .ok_or("h link broken")?;
+        // while the node doesn't point to itself (end of list)
+        loop {
+            println!("{}", current.clone().borrow());
+            column_header_vec.push(current.clone());
+            let next = {
+                let curr_ref = current.borrow();
+                curr_ref.right.clone().ok_or("broken link")?
+            };
+            if Rc::ptr_eq(&current, &self.header) {
+                break;
+            }
+            current = next;
+        }
+
+        for row in 0..9 {
+            for col in 0..9 {
+                for num in 1..=9 {
+                    // calculate the column indicies
+                    // ie, cell constraint 1 for (1, 1) is 0
+                    let cell_idx = row * 9 + col; //covers the first 81
+                    let row_idx = 81 + row * 9 + num - 1;
+                    let col_idx = 81 * 2 + col * 9 + num - 1;
+                    let box_idx = 81 * 3 + ((row / 3) * 3 + col / 3) * 9 + num - 1;
+                    println!(
+                        "Placement: ({}, {}, {}) -> indices: cell={}, row={}, col={}, box={}",
+                        row, col, num, cell_idx, row_idx, col_idx, box_idx
+                    );
+                    let nodes: Vec<Rc<RefCell<Node>>> = vec![
+                        Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
+                        Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
+                        Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
+                        Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
+                    ];
+
+                    for (&idx, node) in [cell_idx, row_idx, col_idx, box_idx]
+                        .iter()
+                        .zip(nodes.iter())
+                    {
+                        let mut col_header = column_header_vec[idx].clone();
+                        let temp = col_header.clone();
+                        if let Some(ref name) = temp.borrow().name {
+                            if name == "h" {
+                                col_header =
+                                    temp.borrow().right.clone().ok_or("Broken header link")?;
+                            }
+                        }
+                        node.borrow_mut().column_header = Some(col_header.clone());
+
+                        // the node needs to link to the bottom of the column.
+                        let header_debug = col_header.clone();
+                        println!(
+                            "Header '{}': up exists? {}",
+                            header_debug
+                                .borrow()
+                                .name
+                                .as_ref()
+                                .unwrap_or(&"unnamed".to_string()),
+                            header_debug.borrow().up.is_some()
+                        );
+                        let last = col_header
+                            .borrow()
+                            .up
+                            .clone()
+                            .ok_or("error")
+                            .expect("borrow col_header");
+                        Node::link_down(last.clone(), node.clone());
+                        Node::link_down(node.clone(), col_header.clone());
+                        col_header.borrow_mut().size += 1;
+                    }
+                    // Link nodes horizontally (circular)
+                    for i in 0..4 {
+                        let curr = &nodes[i];
+                        let next = &nodes[(i + 1) % 4];
+                        Node::link_right(curr.clone(), next.clone());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    // fn initialize_empty_rows(&self) -> Self {
+    //     // the best way to do this is column-wise
+    // }
+    // // go cell by cell in the 9x9 sudoku board (represented as a 81 element array)
+    // for each cell, generate 9 rows to represent [1,9].
+    // 729 total rows (9 elements) * (81 positions)
+    // fill in constraint columns according to rules.
+    // assumes a valid sudoku board going in.
     fn from_sudoku_board(mut self, board: Board) -> Self {
+        let mut starting_idx = 0;
+        for cell in board.cells {
+            println!("{:?}", cell);
+        }
         self
+    }
+}
+impl fmt::Display for Node {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Node [")?;
+        if let Some(ref name) = self.name {
+            write!(f, "{}", name)?;
+        } else {
+            write!(f, "<unnamed>")?;
+        }
+        write!(f, "]")?;
+
+        // display neighbor names
+        write!(f, "Links [")?;
+
+        let get_node_name = |node: &Option<Rc<RefCell<Node>>>| {
+            node.as_ref()
+                .map(|n| {
+                    n.borrow()
+                        .name
+                        .as_ref()
+                        .map_or("<unnamed>".to_string(), |s| s.clone())
+                })
+                .unwrap_or_else(|| "<none>".to_string())
+        };
+
+        write!(f, "Up: {}, ", get_node_name(&self.up))?;
+        write!(f, "Down: {}, ", get_node_name(&self.down))?;
+        write!(f, "Left: {}, ", get_node_name(&self.left))?;
+        write!(f, "Right: {}", get_node_name(&self.right))?;
+
+        if self.is_header {
+            write!(f, ", Size: {}", self.size)?;
+        }
+
+        write!(f, "]")
     }
 }
 impl fmt::Display for DancingLinks {
@@ -275,14 +419,16 @@ mod solver_tests {
     use super::*;
 
     #[test]
-    fn test_constraint_matrix_convertion() {
+    fn test_constraint_matrix_conversion() {
         let valid_cells: [u8; 81] = [
             7, 0, 6, 5, 8, 0, 0, 0, 0, 2, 4, 1, 0, 0, 0, 0, 0, 8, 8, 3, 5, 6, 2, 4, 9, 1, 7, 6, 8,
             7, 3, 5, 2, 1, 4, 9, 0, 0, 9, 8, 7, 0, 0, 0, 0, 0, 5, 2, 4, 1, 9, 7, 8, 6, 1, 7, 8, 2,
             4, 3, 6, 9, 5, 5, 6, 0, 0, 9, 8, 2, 0, 0, 0, 0, 0, 7, 6, 5, 8, 3, 1,
         ];
         let board = Board { cells: valid_cells };
-        // let cmatrix = ConstraintMatrix::from_board(&board);
+        let mut dl = DancingLinks::new();
+        dl = dl.init_header_row();
+        // let cmatrix = DancingLinks::from_sudoku_board(dl, board);
     }
     #[test]
     fn test_basic_circular_link() {
@@ -304,7 +450,6 @@ mod solver_tests {
             0,
             false,
         )));
-        // why cant I just node_a.borrow_mut().right = ..  ?
 
         node_a.borrow_mut().right = Some(node_c.clone());
         node_c.borrow_mut().left = Some(node_a.clone());
@@ -319,5 +464,9 @@ mod solver_tests {
 
         dl = dl.init_header_row();
         println!("After init_header_row(): {}", dl);
+
+        dl.init_constraint_matrix();
+
+        println!("After init_constraint_matrix(): {}", dl);
     }
 }
