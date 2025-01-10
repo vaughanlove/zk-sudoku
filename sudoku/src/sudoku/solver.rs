@@ -20,6 +20,7 @@
 // ie, having no conflicting 1 in the columns means that "box has a 1 in position 1" can only exist once in the solution.
 use crate::sudoku::board::Board;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::fmt::{self, write};
 use std::rc::Rc;
 struct Node {
@@ -417,12 +418,190 @@ impl DancingLinks {
                         let next = &nodes[(i + 1) % 4];
                         Node::link_right(curr.clone(), next.clone());
                     }
+                    // println!("{}", DancingLinks::debug_row_links(nodes[0].clone()));
                 }
             }
         }
         Ok(())
     }
+    fn debug_row_links(start_node: Rc<RefCell<Node>>) -> String {
+        let mut result = String::new();
+        let mut visited = HashSet::new();
+        let mut count = 0;
+
+        // Maximum iterations to prevent infinite loops during debugging
+        const MAX_ITERATIONS: usize = 100;
+
+        let mut current_ptr = Rc::as_ptr(&start_node);
+
+        while !visited.contains(&current_ptr) && count < MAX_ITERATIONS {
+            visited.insert(current_ptr);
+            count += 1;
+
+            // Scope the borrow to release it before moving to next node
+            let col_name = {
+                let node = unsafe { &*current_ptr };
+                let node_ref = node.borrow();
+                node_ref
+                    .column_header
+                    .as_ref()
+                    .map(|h| h.borrow().name.clone())
+                    .flatten()
+                    .unwrap_or_else(|| "unnamed".to_string())
+            };
+
+            result.push_str(&format!("{} -> ", col_name));
+
+            // Get next node pointer
+            let next_ptr = {
+                let node = unsafe { &*current_ptr };
+                let node_ref = node.borrow();
+                node_ref.right.as_ref().map(|right| Rc::as_ptr(right))
+            };
+
+            match next_ptr {
+                Some(ptr) => current_ptr = ptr,
+                None => {
+                    result.push_str("BROKEN_LINK!");
+                    break;
+                }
+            }
+        }
+
+        result.push_str("\n");
+        format!("Row links (count: {}): {}", count, result)
+    }
+    fn cover(&self, column_node: Rc<RefCell<Node>>) -> Result<(), &'static str> {
+        // this is the key point of Knuth's DLX.
+        let covered_column = column_node.clone();
+        {
+            let left = covered_column
+                .borrow()
+                .left
+                .clone()
+                .ok_or("left link broken")?;
+            let right = covered_column
+                .borrow()
+                .right
+                .clone()
+                .ok_or("right link broken")?;
+            // todo, make link_right better...
+            left.borrow_mut().right = Some(right.clone());
+            right.borrow_mut().left = Some(left.clone());
+        }
+
+        let mut row = covered_column
+            .borrow()
+            .down
+            .clone()
+            .ok_or("down link broken")?;
+        while !Rc::ptr_eq(&covered_column, &row) {
+            let next_row = row.borrow().down.clone().ok_or("down link broken")?;
+
+            let mut col = row.borrow().right.clone().ok_or("right link broken")?;
+            while !Rc::ptr_eq(&row, &col) {
+                let next_col = col.borrow().right.clone().ok_or("right link broken")?;
+
+                let up = col.borrow().up.clone().ok_or("up link broken")?;
+                let down = col.borrow().down.clone().ok_or("down link broken")?;
+                up.borrow_mut().down = Some(down.clone());
+                down.borrow_mut().up = Some(up.clone());
+
+                if let Some(ref col_header) = col.borrow().column_header {
+                    col_header.borrow_mut().size -= 1;
+                }
+
+                col = next_col;
+            }
+
+            row = next_row;
+        }
+        Ok(())
+    }
+    // the opposite of cover
+    fn uncover(&self, column_node: Rc<RefCell<Node>>) -> Result<(), &'static str> {
+        let mut row = column_node
+            .clone()
+            .borrow()
+            .up
+            .clone()
+            .ok_or("up link broken")?;
+        while !Rc::ptr_eq(&column_node, &row) {
+            let mut left_node = row
+                .clone()
+                .borrow()
+                .left
+                .clone()
+                .ok_or("right link broken")?;
+            while !Rc::ptr_eq(&row, &left_node) {
+                // reintroduce the links
+                // node.up.down -> node
+                // node.down.up -> node.up
+
+                let current = left_node.clone();
+                let up_node = current
+                    .clone()
+                    .borrow()
+                    .up
+                    .clone()
+                    .ok_or("up link broken")?;
+                let down_node = current
+                    .clone()
+                    .borrow()
+                    .down
+                    .clone()
+                    .ok_or("down link broken")?;
+                up_node.borrow_mut().down = Some(current.clone());
+                down_node.borrow_mut().up = Some(current.clone());
+
+                if let Some(ref col_header) = current.borrow().column_header {
+                    col_header.borrow_mut().size += 1;
+                }
+                left_node = left_node
+                    .clone()
+                    .borrow()
+                    .left
+                    .clone()
+                    .ok_or("right link broken")?;
+            }
+
+            row.clone()
+                .borrow()
+                .right
+                .clone()
+                .ok_or("up link broken")?
+                .borrow_mut()
+                .left = Some(
+                row.clone()
+                    .borrow()
+                    .left
+                    .clone()
+                    .ok_or("down link broken")
+                    .unwrap(),
+            );
+
+            row.clone()
+                .borrow()
+                .left
+                .clone()
+                .ok_or("up link broken")?
+                .borrow_mut()
+                .right = Some(
+                row.clone()
+                    .borrow()
+                    .right
+                    .clone()
+                    .ok_or("down link broken")
+                    .unwrap(),
+            );
+            row = row.clone().borrow().up.clone().ok_or("up link broken")?;
+        }
+        Ok(())
+    }
+
     fn solve(&self) -> Result<(), &'static str> {
+        // this will hold the end solution.
+        let mut solution: Vec<Rc<RefCell<Node>>> = Vec::with_capacity(81);
         // looking at this, I should abstract the borrowing right/left and checking to helper functions.
         let head = self.header.clone();
         // if we have solved the sparse matrix
@@ -638,7 +817,12 @@ mod solver_tests {
         dl.init_constraint_matrix();
 
         // println!("After init_constraint_matrix(): {}", dl);
-        dl.solve();
+        // dl.solve();
+
+        let node = dl.get_col(&"C7#6".to_string()).unwrap();
+        dl.cover(node).unwrap();
+
+        println!("After init_constraint_matrix(): {}", dl);
     }
     #[test]
     fn test_row_circular() {
@@ -654,5 +838,13 @@ mod solver_tests {
         // assert!(is_vertically_circular.unwrap());
 
         dl.solve();
+    }
+    #[test]
+    fn test_cover_method() {
+        let mut dl = DancingLinks::new();
+        dl = dl.init_header_row();
+        dl.init_constraint_matrix();
+        let node = dl.get_col(&"C7#6".to_string()).unwrap();
+        dl.cover(node);
     }
 }
