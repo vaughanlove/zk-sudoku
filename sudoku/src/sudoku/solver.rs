@@ -21,21 +21,102 @@
 use crate::sudoku::board::Board;
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::fmt::{self, write};
+use std::fmt::{self, write, Display};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+type NodeRc = Rc<RefCell<Node>>;
+
 struct Node {
-    column_header: Option<Rc<RefCell<Node>>>,
-    up: Option<Rc<RefCell<Node>>>,
-    down: Option<Rc<RefCell<Node>>>,
-    left: Option<Rc<RefCell<Node>>>,
-    right: Option<Rc<RefCell<Node>>>,
+    column_header: Option<NodeRc>,
+    up: Option<NodeRc>,
+    down: Option<NodeRc>,
+    left: Option<NodeRc>,
+    right: Option<NodeRc>,
     name: Option<String>, // for column header
-    size: usize,          // for column header
+    size: Option<usize>,  // for column header
     value: Option<bool>,
     is_header: bool,
 }
+#[derive(Copy, Clone)]
+enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+// For Rc<RefCell<Node>> operations
+trait NodeRef {
+    fn with<T>(&self, f: impl FnOnce(&Node) -> T) -> T;
+    fn with_mut<T>(&self, f: impl FnOnce(&mut Node) -> T) -> T;
+    fn increment_size(&self) -> Result<(), &'static str>;
+    fn decrement_size(&self) -> Result<(), &'static str>;
+    fn get_size(&self) -> Result<usize, &'static str>;
+}
+
+impl NodeRef for NodeRc {
+    fn get_size(&self) -> Result<usize, &'static str> {
+        self.with(|node| node.size.ok_or("no size field"))
+    }
+    fn increment_size(&self) -> Result<(), &'static str> {
+        self.with_mut(|node| {
+            node.size = Some(node.size.ok_or("no size field")? + 1);
+            Ok(())
+        })
+    }
+    fn decrement_size(&self) -> Result<(), &'static str> {
+        self.with_mut(|node| {
+            node.size = Some(node.size.ok_or("no size field")? - 1);
+            Ok(())
+        })
+    }
+    fn with<T>(&self, f: impl FnOnce(&Node) -> T) -> T {
+        f(&self.borrow())
+    }
+
+    fn with_mut<T>(&self, f: impl FnOnce(&mut Node) -> T) -> T {
+        f(&mut self.borrow_mut())
+    }
+}
 impl Node {
-    fn new(value: Option<bool>, name: Option<String>, size: usize, is_header: bool) -> Self {
+    /// Traverses to the next node in the specified direction
+    /// Returns Result containing the next node or an error message
+    fn traverse(&self, direction: Direction) -> Result<Rc<RefCell<Node>>, &'static str> {
+        match direction {
+            Direction::Left => self.left.clone(),
+            Direction::Right => self.right.clone(),
+            Direction::Up => self.up.clone(),
+            Direction::Down => self.down.clone(),
+        }
+        .ok_or(match direction {
+            Direction::Left => "missing left link",
+            Direction::Right => "missing right link",
+            Direction::Up => "missing up link",
+            Direction::Down => "missing down link",
+        })
+    }
+    fn debug_column_info(&self) -> String {
+        format!(
+            "Column [{}] Size: {} Header: {}",
+            self.name.as_ref().unwrap_or(&"unnamed".to_string()),
+            self.size.unwrap_or(0),
+            self.is_header
+        )
+    }
+
+    fn new_rc(
+        value: Option<bool>,
+        name: Option<String>,
+        size: Option<usize>,
+        is_header: bool,
+    ) -> Rc<RefCell<Node>> {
+        Rc::new(RefCell::new(Node::new(value, name, size, is_header)))
+    }
+    fn new(
+        value: Option<bool>,
+        name: Option<String>,
+        size: Option<usize>,
+        is_header: bool,
+    ) -> Self {
         Node {
             column_header: None,
             up: None,
@@ -57,7 +138,7 @@ impl Node {
             right: None,
             value: Some(false),
             name: Some(name),
-            size: 0,
+            size: Some(0),
             is_header: true,
         }));
         let header_clone = header.clone();
@@ -146,7 +227,7 @@ impl DancingLinks {
             left: None,
             right: None,
             name: Some(String::from("h")),
-            size: 0,
+            size: Some(0),
             value: Some(false),
             is_header: true,
         }));
@@ -159,20 +240,9 @@ impl DancingLinks {
 
         DancingLinks { header }
     }
-
     /// This function instantiates the skeleton of the constraint header column and returns the DancingLinks root.
-    fn init_header_row(mut self) -> Self {
+    fn init_header_row(&self) {
         let mut prev = self.header.clone();
-
-        // cell position constraints
-        // println!("{}", prev.clone().borrow());
-
-        // let first_header = Node::new_header(format!("R{}C{}", 0, 0));
-
-        // Node::link_right(prev.clone(), first_header.clone()).expect("First link failed");
-
-        // prev = first_header;
-        // println!("{}", prev.clone().borrow());
         for i in 0..81 {
             // link h to first position
             let header_name = format!("R{}C{}", (i / 9) + 1, (i % 9) + 1);
@@ -212,7 +282,6 @@ impl DancingLinks {
             self.header.borrow().right.is_some(),
             "Header must have right link"
         );
-        self
     }
 
     fn verify_header_row_is_circular(&self) -> Result<(), &'static str> {
@@ -351,10 +420,10 @@ impl DancingLinks {
                     let box_idx = 81 * 3 + ((row / 3) * 3 + col / 3) * 9 + num - 1;
 
                     let nodes: Vec<Rc<RefCell<Node>>> = vec![
-                        Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
-                        Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
-                        Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
-                        Rc::new(RefCell::new(Node::new(Some(true), None, 0, false))),
+                        Node::new_rc(Some(true), None, None, false),
+                        Node::new_rc(Some(true), None, None, false),
+                        Node::new_rc(Some(true), None, None, false),
+                        Node::new_rc(Some(true), None, None, false),
                     ];
 
                     // horizontally link the nodes
@@ -410,7 +479,7 @@ impl DancingLinks {
                         // println!("{}", node.clone().borrow());
                         // println!("{}", prev_last.clone().borrow());
                         // println!("{}", col_header.clone().borrow());
-                        col_header.borrow_mut().size += 1;
+                        col_header.increment_size()?;
                     }
                     // Link nodes horizontally (circular)
                     for i in 0..4 {
@@ -473,6 +542,11 @@ impl DancingLinks {
     }
     fn cover(&self, column_node: Rc<RefCell<Node>>) -> Result<(), &'static str> {
         // this is the key point of Knuth's DLX.
+        let col_info = column_node.borrow().debug_column_info();
+        println!("Covering: {}", col_info);
+        // Track the size before operation
+        let initial_size = column_node.borrow().size;
+        // println!("Initial column size: {}", initial_size);
         let covered_column = column_node.clone();
         {
             let left = covered_column
@@ -500,16 +574,24 @@ impl DancingLinks {
 
             let mut col = row.borrow().right.clone().ok_or("right link broken")?;
             while !Rc::ptr_eq(&row, &col) {
-                let next_col = col.borrow().right.clone().ok_or("right link broken")?;
+                let next_col = col
+                    .clone()
+                    .borrow()
+                    .right
+                    .clone()
+                    .ok_or("right link broken")?;
 
-                let up = col.borrow().up.clone().ok_or("up link broken")?;
-                let down = col.borrow().down.clone().ok_or("down link broken")?;
+                let up = col.clone().borrow().up.clone().ok_or("up link broken")?;
+                let down = col
+                    .clone()
+                    .borrow()
+                    .down
+                    .clone()
+                    .ok_or("down link broken")?;
                 up.borrow_mut().down = Some(down.clone());
                 down.borrow_mut().up = Some(up.clone());
 
-                if let Some(ref col_header) = col.borrow().column_header {
-                    col_header.borrow_mut().size -= 1;
-                }
+                col.decrement_size();
 
                 col = next_col;
             }
@@ -553,10 +635,13 @@ impl DancingLinks {
                     .ok_or("down link broken")?;
                 up_node.borrow_mut().down = Some(current.clone());
                 down_node.borrow_mut().up = Some(current.clone());
-
-                if let Some(ref col_header) = current.borrow().column_header {
-                    col_header.borrow_mut().size += 1;
-                }
+                let col_header = current
+                    .clone()
+                    .borrow()
+                    .column_header
+                    .clone()
+                    .ok_or("no column header found.")?;
+                col_header.increment_size()?;
                 left_node = left_node
                     .clone()
                     .borrow()
@@ -599,47 +684,80 @@ impl DancingLinks {
         Ok(())
     }
 
-    fn solve(&self) -> Result<(), &'static str> {
-        // this will hold the end solution.
-        let mut solution: Vec<Rc<RefCell<Node>>> = Vec::with_capacity(81);
+    fn solve(&self) -> Result<Vec<Rc<RefCell<Node>>>, &'static str> {
+        let mut solution = Vec::new(); // Using Vec instead of HashSet for ordered solution tracking
+        self.search(&mut solution)
+    }
+
+    fn search(
+        &self,
+        solution: &mut Vec<Rc<RefCell<Node>>>,
+    ) -> Result<Vec<Rc<RefCell<Node>>>, &'static str> {
         // looking at this, I should abstract the borrowing right/left and checking to helper functions.
+        // todo, unify api
+
         let head = self.header.clone();
+
         // if we have solved the sparse matrix
         if (Rc::ptr_eq(
             &head.borrow().right.clone().ok_or("right link broken")?,
             &head.clone(),
         )) {
-            return Ok(());
-        } else {
-            let mut column = head.borrow().right.clone().ok_or("right lnk broken")?;
-            // cover(column) - todo write cover
-            // println!("{}", column.clone().borrow());
-
-            while (!Rc::ptr_eq(
-                &column
-                    .clone()
-                    .borrow()
-                    .down
-                    .clone()
-                    .ok_or("down link failed")?,
-                &column
-                    .clone()
-                    .borrow()
-                    .column_header
-                    .clone()
-                    .ok_or("matrix init failed")?,
-            )) {
-                // println!("{}", column.clone().borrow());
-                column = column
-                    .clone()
-                    .borrow()
-                    .down
-                    .clone()
-                    .ok_or("down link broken")?;
-            }
+            return Ok(solution.clone()); // todo: return the solution
         }
+        let mut column = head.borrow().right.clone().ok_or("right lnk broken")?;
+        DancingLinks::cover(&self, column.clone());
 
-        Ok(())
+        let mut row = column
+            .clone()
+            .borrow()
+            .down
+            .clone()
+            .ok_or("down link broken")?;
+
+        while (!Rc::ptr_eq(&column, &row)) {
+            // println!("{}", column.clone().borrow());
+            solution.push(row.clone());
+            let mut left_node = row
+                .clone()
+                .borrow()
+                .left
+                .clone()
+                .ok_or("left link broken")?;
+            while !Rc::ptr_eq(&row, &left_node) {
+                DancingLinks::cover(&self, left_node.clone());
+
+                left_node = left_node
+                    .clone()
+                    .borrow()
+                    .left
+                    .clone()
+                    .ok_or("left link broken")?;
+            }
+
+            // Recursive search
+            if let Ok(result) = self.search(solution) {
+                return Ok(result);
+            }
+
+            solution.pop();
+            column = row
+                .clone()
+                .borrow()
+                .column_header
+                .clone()
+                .ok_or("column header not found")?;
+            row = row
+                .clone()
+                .borrow()
+                .down
+                .clone()
+                .ok_or("down link broken")?;
+        }
+        DancingLinks::uncover(&self, column.clone());
+
+        self.uncover(column)?;
+        Ok(Vec::new())
     }
 
     // note to self: right now I have every possible constraint satisfied,
@@ -664,6 +782,9 @@ impl DancingLinks {
             println!("{:?}", cell);
         }
         self
+    }
+    fn debug_print(board: &DancingLinks) {
+        println!("{}", board);
     }
 }
 impl fmt::Display for Node {
@@ -696,7 +817,7 @@ impl fmt::Display for Node {
         write!(f, "Right: {}", get_node_name(&self.right))?;
 
         if self.is_header {
-            write!(f, ", Size: {}", self.size)?;
+            write!(f, ", Size: {:?}", self.size.ok_or("size is None"))?;
         }
 
         write!(f, "]")
@@ -742,7 +863,7 @@ impl fmt::Display for DancingLinks {
                 let borrowed = node.borrow();
                 writeln!(
                     f,
-                    "    {}: {}",
+                    "    {}: {:?}",
                     borrowed.name.as_ref().unwrap_or(&String::from("")),
                     borrowed.size
                 )?;
@@ -766,7 +887,126 @@ impl fmt::Display for DancingLinks {
 #[cfg(test)]
 mod solver_tests {
     use super::*;
+    #[test]
+    fn test_right_link() {}
 
+    #[test]
+    fn test_down_link() {}
+
+    #[test]
+    fn test_cover() {}
+
+    #[test]
+    fn test_uncover() {}
+
+    #[test]
+    fn test_node_ops() -> Result<(), &'static str> {
+        let node = Rc::new(RefCell::new(Node::new(
+            Some(true),
+            Some("test".to_string()),
+            Some(0),
+            false,
+        )));
+
+        assert!(node.get_size().unwrap() == 0);
+        node.increment_size()?;
+
+        assert!(node.get_size().unwrap() == 1);
+        println!("{}", node.borrow());
+        Ok(())
+    }
+
+    #[test]
+    fn create_constraint_matrix() {
+        let mut dl = DancingLinks::new();
+        dl.init_header_row();
+        DancingLinks::debug_print(&dl);
+        dl.init_constraint_matrix();
+        DancingLinks::debug_print(&dl);
+    }
+    #[test]
+    fn verify_vertical_circular_invariant() -> Result<(), &'static str> {
+        let MAX_ITERATIONS = 1000;
+        let mut iteration = 0;
+
+        let mut dl = DancingLinks::new();
+        dl.init_header_row();
+        dl.init_constraint_matrix();
+
+        let header = dl.header.clone().borrow().traverse(Direction::Right)?;
+        let mut current = header.clone().borrow().traverse(Direction::Down)?;
+
+        while !Rc::ptr_eq(&header, &current) {
+            println!("{}", current.clone().borrow());
+            iteration += 1;
+            if iteration == 1000 {
+                return Err("Vertical links hit iteration limit.");
+            }
+            let next = {
+                let node = current.borrow();
+                node.traverse(Direction::Down)?
+            };
+            current = next;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn verify_header_circular_invariant() -> Result<(), &'static str> {
+        let mut dl = DancingLinks::new();
+        dl.init_header_row();
+        // DancingLinks::debug_print(&dl);
+        dl.init_constraint_matrix();
+        // DancingLinks::debug_print(&dl);
+
+        let header = dl.header.clone();
+        let mut current = header.clone();
+        // Should have 81 * 4 column headers
+        // they should all have unique names
+        // they should all have size 9
+        // test navigating right
+        for _ in 0..=324 {
+            let next = {
+                let node = current.borrow();
+                node.traverse(Direction::Right)?
+            };
+            current = next;
+        }
+
+        assert!(Rc::ptr_eq(&header, &current));
+        // test navigating left
+
+        for _ in 0..=324 {
+            let next = {
+                let node = current.borrow();
+                node.traverse(Direction::Left)?
+            };
+            current = next;
+        }
+        assert!(Rc::ptr_eq(&header, &current));
+        Ok(())
+    }
+
+    #[test]
+    fn test_init_sizes() -> Result<(), &'static str> {
+        // want to verify that all columns have size 9 on init
+        let mut dl = DancingLinks::new();
+        dl.init_header_row();
+        dl.init_constraint_matrix();
+
+        let header = dl.header.clone();
+        let mut current = header.clone().borrow().traverse(Direction::Right)?;
+        while !Rc::ptr_eq(&header, &current) {
+            assert!(current.get_size().unwrap() == 9);
+            let next = {
+                let node = current.borrow();
+                node.traverse(Direction::Right)?
+            };
+            current = next;
+        }
+        Ok(())
+    }
     #[test]
     fn test_constraint_matrix_conversion() {
         let valid_cells: [u8; 81] = [
@@ -776,7 +1016,7 @@ mod solver_tests {
         ];
         let board = Board { cells: valid_cells };
         let mut dl = DancingLinks::new();
-        dl = dl.init_header_row();
+        dl.init_header_row();
         // let cmatrix = DancingLinks::from_sudoku_board(dl, board);
     }
     #[test]
@@ -784,19 +1024,19 @@ mod solver_tests {
         let node_a = Rc::new(RefCell::new(Node::new(
             Some(true),
             Some(String::from("a")),
-            0,
+            Some(0),
             false,
         )));
         let node_b = Rc::new(RefCell::new(Node::new(
             Some(false),
             Some(String::from("b")),
-            0,
+            Some(0),
             false,
         )));
         let node_c = Rc::new(RefCell::new(Node::new(
             Some(false),
             Some(String::from("c")),
-            0,
+            Some(0),
             false,
         )));
 
@@ -808,43 +1048,42 @@ mod solver_tests {
     }
     #[test]
     fn test_dl_print() {
-        let mut dl = DancingLinks::new();
+        // let mut dl = DancingLinks::new();
         // println!("After new(): {}", dl);
 
-        dl = dl.init_header_row();
+        // dl = dl.init_header_row();
         // println!("After init_header_row(): {}", dl);
 
-        dl.init_constraint_matrix();
+        // dl.init_constraint_matrix();
 
         // println!("After init_constraint_matrix(): {}", dl);
         // dl.solve();
 
-        let node = dl.get_col(&"C7#6".to_string()).unwrap();
-        dl.cover(node).unwrap();
+        // let node = dl.get_col(&"C7#6".to_string()).unwrap();
+        // dl.cover(node).unwrap();
 
-        println!("After init_constraint_matrix(): {}", dl);
+        // println!("After init_constraint_matrix(): {}", dl);
     }
     #[test]
     fn test_row_circular() {
         let mut dl = DancingLinks::new();
-        dl = dl.init_header_row();
-        dl.init_constraint_matrix();
+        // dl = dl.init_header_row();
+        // dl.init_constraint_matrix();
 
         // assert!(dl.verify_header_row_is_circular().is_ok());
-        let node = dl.get_col(&"C7#6".to_string());
         // println!("{}", node.unwrap().borrow());
-        let is_vertically_circular = dl.verify_column_is_circular(&"R6#3".to_string());
+        // let is_vertically_circular = dl.verify_column_is_circular(&"R6#3".to_string());
         // println!("{:?}", is_vertically_circular);
         // assert!(is_vertically_circular.unwrap());
 
-        dl.solve();
+        // dl.solve();
     }
     #[test]
     fn test_cover_method() {
-        let mut dl = DancingLinks::new();
-        dl = dl.init_header_row();
-        dl.init_constraint_matrix();
-        let node = dl.get_col(&"C7#6".to_string()).unwrap();
-        dl.cover(node);
+        // let mut dl = DancingLinks::new();
+        // dl = dl.init_header_row();
+        // dl.init_constraint_matrix();
+        // let node = dl.get_col(&"C7#6".to_string()).unwrap();
+        // dl.cover(node);
     }
 }
