@@ -23,6 +23,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt::{self, write, Display};
 use std::hash::{Hash, Hasher};
+use std::ops::Sub;
 use std::rc::Rc;
 type NodeRc = Rc<RefCell<Node>>;
 
@@ -51,9 +52,63 @@ trait NodeRef {
     fn increment_size(&self) -> Result<(), &'static str>;
     fn decrement_size(&self) -> Result<(), &'static str>;
     fn get_size(&self) -> Result<usize, &'static str>;
+    fn remove_from_neighbors(&self, direction: Direction) -> Result<(), &'static str>;
+    fn restore_to_neighbors(&self, direction: Direction) -> Result<(), &'static str>;
+    fn get_column_header(&self) -> Result<Rc<RefCell<Node>>, &'static str>;
 }
 
 impl NodeRef for NodeRc {
+    fn get_column_header(&self) -> Result<Rc<RefCell<Node>>, &'static str> {
+        self.with(|node| node.column_header.clone().ok_or("no column_header found."))
+    }
+    fn restore_to_neighbors(&self, direction: Direction) -> Result<(), &'static str> {
+        let mut dir = "";
+        match direction {
+            Direction::Left => dir = "horizontal",
+            Direction::Right => dir = "horizontal",
+            Direction::Up => dir = "vertical",
+            Direction::Down => dir = "vertical",
+        }
+
+        if dir.eq("horizontal") {
+            // remove
+            let left = self.borrow().traverse(Direction::Left)?;
+            let right = self.borrow().traverse(Direction::Right)?;
+            left.borrow_mut().right = Some(self.clone());
+            right.borrow_mut().left = Some(self.clone());
+        }
+        if dir.eq("vertical") {
+            let up = self.borrow().traverse(Direction::Up)?;
+            let down = self.borrow().traverse(Direction::Down)?;
+            up.borrow_mut().up = Some(self.clone());
+            down.borrow_mut().down = Some(self.clone());
+        }
+        Ok(())
+    }
+    fn remove_from_neighbors(&self, direction: Direction) -> Result<(), &'static str> {
+        let mut dir = "";
+        match direction {
+            Direction::Left => dir = "horizontal",
+            Direction::Right => dir = "horizontal",
+            Direction::Up => dir = "vertical",
+            Direction::Down => dir = "vertical",
+        }
+
+        if dir.eq("horizontal") {
+            // remove
+            let left = self.borrow().traverse(Direction::Left)?;
+            let right = self.borrow().traverse(Direction::Right)?;
+            left.borrow_mut().right = Some(right.clone());
+            right.borrow_mut().left = Some(left.clone());
+        }
+        if dir.eq("vertical") {
+            let up = self.borrow().traverse(Direction::Up)?;
+            let down = self.borrow().traverse(Direction::Down)?;
+            up.borrow_mut().up = Some(up.clone());
+            down.borrow_mut().down = Some(down.clone());
+        }
+        Ok(())
+    }
     fn get_size(&self) -> Result<usize, &'static str> {
         self.with(|node| node.size.ok_or("no size field"))
     }
@@ -64,8 +119,9 @@ impl NodeRef for NodeRc {
         })
     }
     fn decrement_size(&self) -> Result<(), &'static str> {
+        println!("{}", self.borrow());
         self.with_mut(|node| {
-            node.size = Some(node.size.ok_or("no size field")? - 1);
+            node.size = Some(node.size.ok_or("no size field")?.sub(1));
             Ok(())
         })
     }
@@ -543,149 +599,68 @@ impl DancingLinks {
     fn cover(&self, column_node: Rc<RefCell<Node>>) -> Result<(), &'static str> {
         // this is the key point of Knuth's DLX.
         let col_info = column_node.borrow().debug_column_info();
-        println!("Covering: {}", col_info);
+        // println!("Covering: {}", col_info);
         // Track the size before operation
         let initial_size = column_node.borrow().size;
-        // println!("Initial column size: {}", initial_size);
-        let covered_column = column_node.clone();
-        {
-            let left = covered_column
-                .borrow()
-                .left
-                .clone()
-                .ok_or("left link broken")?;
-            let right = covered_column
-                .borrow()
-                .right
-                .clone()
-                .ok_or("right link broken")?;
-            // todo, make link_right better...
-            left.borrow_mut().right = Some(right.clone());
-            right.borrow_mut().left = Some(left.clone());
-        }
+        // println!("Initial column size: {:?}", initial_size);
+        column_node.remove_from_neighbors(Direction::Right);
 
-        let mut row = covered_column
-            .borrow()
-            .down
-            .clone()
-            .ok_or("down link broken")?;
-        while !Rc::ptr_eq(&covered_column, &row) {
-            let next_row = row.borrow().down.clone().ok_or("down link broken")?;
-
-            let mut col = row.borrow().right.clone().ok_or("right link broken")?;
-            while !Rc::ptr_eq(&row, &col) {
-                let next_col = col
-                    .clone()
-                    .borrow()
-                    .right
-                    .clone()
-                    .ok_or("right link broken")?;
-
-                let up = col.clone().borrow().up.clone().ok_or("up link broken")?;
-                let down = col
-                    .clone()
-                    .borrow()
-                    .down
-                    .clone()
-                    .ok_or("down link broken")?;
-                up.borrow_mut().down = Some(down.clone());
-                down.borrow_mut().up = Some(up.clone());
-
-                col.decrement_size();
-
-                col = next_col;
-            }
-
-            row = next_row;
-        }
-        Ok(())
-    }
-    // the opposite of cover
-    fn uncover(&self, column_node: Rc<RefCell<Node>>) -> Result<(), &'static str> {
-        let mut row = column_node
-            .clone()
-            .borrow()
-            .up
-            .clone()
-            .ok_or("up link broken")?;
+        let mut row = column_node.borrow().traverse(Direction::Down)?;
         while !Rc::ptr_eq(&column_node, &row) {
-            let mut left_node = row
-                .clone()
-                .borrow()
-                .left
-                .clone()
-                .ok_or("right link broken")?;
-            while !Rc::ptr_eq(&row, &left_node) {
-                // reintroduce the links
-                // node.up.down -> node
-                // node.down.up -> node.up
+            let mut row_ele = row.borrow().traverse(Direction::Right)?;
+            while !Rc::ptr_eq(&row, &row_ele) {
+                println!("{}", row_ele.clone().borrow());
+                row_ele.remove_from_neighbors(Direction::Down);
+                row_ele.with(|node| -> Result<(), &'static str> {
+                    node.column_header
+                        .clone()
+                        .ok_or("no column header")?
+                        .decrement_size();
+                    Ok(())
+                })?;
 
-                let current = left_node.clone();
-                let up_node = current
-                    .clone()
-                    .borrow()
-                    .up
-                    .clone()
-                    .ok_or("up link broken")?;
-                let down_node = current
-                    .clone()
-                    .borrow()
-                    .down
-                    .clone()
-                    .ok_or("down link broken")?;
-                up_node.borrow_mut().down = Some(current.clone());
-                down_node.borrow_mut().up = Some(current.clone());
-                let col_header = current
-                    .clone()
-                    .borrow()
-                    .column_header
-                    .clone()
-                    .ok_or("no column header found.")?;
-                col_header.increment_size()?;
-                left_node = left_node
-                    .clone()
-                    .borrow()
-                    .left
-                    .clone()
-                    .ok_or("right link broken")?;
+                row_ele = row_ele.clone().borrow().traverse(Direction::Right)?;
             }
-
-            row.clone()
-                .borrow()
-                .right
-                .clone()
-                .ok_or("up link broken")?
-                .borrow_mut()
-                .left = Some(
-                row.clone()
-                    .borrow()
-                    .left
-                    .clone()
-                    .ok_or("down link broken")
-                    .unwrap(),
-            );
-
-            row.clone()
-                .borrow()
-                .left
-                .clone()
-                .ok_or("up link broken")?
-                .borrow_mut()
-                .right = Some(
-                row.clone()
-                    .borrow()
-                    .right
-                    .clone()
-                    .ok_or("down link broken")
-                    .unwrap(),
-            );
-            row = row.clone().borrow().up.clone().ok_or("up link broken")?;
+            row = row.clone().borrow().traverse(Direction::Down)?;
         }
+
         Ok(())
     }
+    fn uncover(&self, column_node: Rc<RefCell<Node>>) -> Result<(), &'static str> {
+        // Debug information similar to cover
+        let col_info = column_node.borrow().debug_column_info();
+        println!("Uncovering: {}", col_info);
 
+        // We process rows in reverse order compared to cover
+        let mut row = column_node.borrow().traverse(Direction::Up)?;
+        while !Rc::ptr_eq(&column_node, &row) {
+            let mut row_ele = row.borrow().traverse(Direction::Left)?;
+            while !Rc::ptr_eq(&row, &row_ele) {
+                // Restore vertical links for each node in the row
+                row_ele.restore_to_neighbors(Direction::Down);
+
+                row_ele.with(|node| -> Result<(), &'static str> {
+                    node.column_header
+                        .clone()
+                        .ok_or("no column header")?
+                        .increment_size();
+                    Ok(())
+                })?;
+
+                // Move to the next element in the row (going left)
+                row_ele = row_ele.clone().borrow().traverse(Direction::Left)?;
+            }
+            // Move up to the next row
+            row = row.clone().borrow().traverse(Direction::Up)?;
+        }
+
+        // Finally, restore the column header's horizontal links
+        column_node.restore_to_neighbors(Direction::Right);
+
+        Ok(())
+    }
     fn solve(&self) -> Result<Vec<Rc<RefCell<Node>>>, &'static str> {
-        let mut solution = Vec::new(); // Using Vec instead of HashSet for ordered solution tracking
+        let mut solution = Vec::new();
         self.search(&mut solution)
     }
 
@@ -693,89 +668,86 @@ impl DancingLinks {
         &self,
         solution: &mut Vec<Rc<RefCell<Node>>>,
     ) -> Result<Vec<Rc<RefCell<Node>>>, &'static str> {
-        // looking at this, I should abstract the borrowing right/left and checking to helper functions.
-        // todo, unify api
-
-        let head = self.header.clone();
-
-        // if we have solved the sparse matrix
-        if (Rc::ptr_eq(
-            &head.borrow().right.clone().ok_or("right link broken")?,
-            &head.clone(),
-        )) {
-            return Ok(solution.clone()); // todo: return the solution
+        // 1. Check if matrix is empty (no columns left)
+        if Rc::ptr_eq(
+            &self.header.borrow().right.clone().ok_or("no right link")?,
+            &self.header,
+        ) {
+            // Found a valid solution
+            return Ok(solution.clone());
         }
-        let mut column = head.borrow().right.clone().ok_or("right lnk broken")?;
-        DancingLinks::cover(&self, column.clone());
 
-        let mut row = column
-            .clone()
-            .borrow()
-            .down
-            .clone()
-            .ok_or("down link broken")?;
+        // 2. Pick column with minimum size (deterministically)
+        let chosen_column = {
+            let mut min_size = usize::MAX;
+            let mut min_column = None;
+            let mut current = self.header.borrow().traverse(Direction::Right)?;
 
-        while (!Rc::ptr_eq(&column, &row)) {
-            // println!("{}", column.clone().borrow());
+            while !Rc::ptr_eq(&self.header, &current) {
+                let size = current.borrow().size.unwrap();
+                if size < min_size {
+                    min_size = size;
+                    min_column = Some(current.clone());
+                }
+                if min_size == 0 {
+                    // Found an unsatisfied column, backtrack
+                    return Err("Unsatisfied column found");
+                }
+                current = current.clone().borrow().traverse(Direction::Right)?;
+            }
+            min_column.ok_or("No column available")?
+        };
+
+        // Cover the chosen column
+        self.cover(chosen_column.clone())?;
+
+        // 3. Try each row r such that A[r,c] = 1 (nondeterministically)
+        let mut row = chosen_column.borrow().traverse(Direction::Down)?;
+        while !Rc::ptr_eq(&chosen_column, &row) {
+            // 4. Include row in partial solution
             solution.push(row.clone());
-            let mut left_node = row
-                .clone()
-                .borrow()
-                .left
-                .clone()
-                .ok_or("left link broken")?;
-            while !Rc::ptr_eq(&row, &left_node) {
-                DancingLinks::cover(&self, left_node.clone());
 
-                left_node = left_node
-                    .clone()
-                    .borrow()
-                    .left
-                    .clone()
-                    .ok_or("left link broken")?;
+            // 5. Cover all columns j where A[r,j] = 1
+            let mut row_ele = row.borrow().traverse(Direction::Right)?;
+            while !Rc::ptr_eq(&row, &row_ele) {
+                let col = row_ele.get_column_header()?;
+                self.cover(col)?;
+                row_ele = row_ele.clone().borrow().traverse(Direction::Right)?;
             }
 
-            // Recursive search
-            if let Ok(result) = self.search(solution) {
-                return Ok(result);
+            // 6. Recursive call on reduced matrix
+            match self.search(solution) {
+                Ok(found_solution) => {
+                    // Solution found, propagate up
+                    return Ok(found_solution);
+                }
+                Err(_) => {
+                    // Backtrack: remove row from solution
+                    solution.pop();
+
+                    // Uncover columns in reverse order
+                    let mut row_ele = row.borrow().traverse(Direction::Left)?;
+                    while !Rc::ptr_eq(&row, &row_ele) {
+                        let col = row_ele.get_column_header()?;
+                        self.uncover(col)?;
+                        row_ele = row_ele.clone().borrow().traverse(Direction::Left)?;
+                    }
+                }
             }
 
-            solution.pop();
-            column = row
-                .clone()
-                .borrow()
-                .column_header
-                .clone()
-                .ok_or("column header not found")?;
-            row = row
-                .clone()
-                .borrow()
-                .down
-                .clone()
-                .ok_or("down link broken")?;
+            row = row.clone().borrow().traverse(Direction::Down)?;
         }
-        DancingLinks::uncover(&self, column.clone());
 
-        self.uncover(column)?;
-        Ok(Vec::new())
-    }
+        // Uncover the chosen column before backtracking
+        self.uncover(chosen_column)?;
 
-    // note to self: right now I have every possible constraint satisfied,
-    // if I want to solve a board that has clues already in it, simply remove constraints that conflict
-    // with the hints that I have.
-    // so if I have a clue that a 5 is at position (6,7), then I keep the constraint that
-    // corresponds to that exact constraint, and remove every other constraint at (6,7) and box for 5 etc.
-    // DLX can start at any submatrix, so hints are basicually just choosing the
-    // first n steps of the puzzle.
-
-    // fn initialize_empty_rows(&self) -> Self {
-    //     // the best way to do this is column-wise
-    // }
-    // // go cell by cell in the 9x9 sudoku board (represented as a 81 element array)
-    // for each cell, generate 9 rows to represent [1,9].
-    // 729 total rows (9 elements) * (81 positions)
-    // fill in constraint columns according to rules.
-    // assumes a valid sudoku board going in.
+        // No solution found in this branch
+        Err("No solution found")
+    } // // go cell by cell in the 9x9 sudoku board (represented as a 81 element array)
+      // for each cell, generate 9 rows to represent [1,9].
+      // 729 total rows (9 elements) * (81 positions)
+      // fill in constraint columns according to rules.
+      // assumes a valid sudoku board going in.
     fn from_sudoku_board(mut self, board: Board) -> Self {
         let mut starting_idx = 0;
         for cell in board.cells {
@@ -888,13 +860,53 @@ impl fmt::Display for DancingLinks {
 mod solver_tests {
     use super::*;
     #[test]
+    fn test_remove_node_horizontally() -> Result<(), &'static str> {
+        let A = Node::new_rc(Some(true), Some("A".to_string()), None, false);
+        let B = Node::new_rc(Some(true), Some("B".to_string()), None, false);
+        let C = Node::new_rc(Some(true), Some("C".to_string()), None, false);
+        A.clone().borrow_mut().left = Some(C.clone());
+        A.clone().borrow_mut().right = Some(B.clone());
+        B.clone().borrow_mut().left = Some(A.clone());
+        B.clone().borrow_mut().right = Some(C.clone());
+        C.clone().borrow_mut().left = Some(B.clone());
+        C.clone().borrow_mut().right = Some(A.clone());
+
+        B.remove_from_neighbors(Direction::Right).unwrap();
+        // println!("A: {}", A.borrow());
+        // println!("B: {}", B.borrow());
+        // println!("C: {}", C.borrow());
+        assert!(Rc::ptr_eq(
+            &A.borrow().right.clone().ok_or("no right node")?,
+            &C.clone()
+        ));
+        assert!(Rc::ptr_eq(
+            &C.borrow().left.clone().ok_or("no right node")?,
+            &A.clone()
+        ));
+        Ok(())
+    }
+    #[test]
     fn test_right_link() {}
 
     #[test]
     fn test_down_link() {}
 
     #[test]
-    fn test_cover() {}
+    fn test_cover() -> Result<(), &'static str> {
+        let mut dl = DancingLinks::new();
+        dl.init_header_row();
+        dl.init_constraint_matrix();
+
+        let col_head = dl.header.borrow().right.clone().ok_or("no right lnk")?;
+
+        println!("before cover: {}", dl);
+        dl.cover(col_head.clone());
+        println!("after cover: {}", dl);
+        dl.uncover(col_head);
+
+        println!("after uncover: {}", dl);
+        Ok(())
+    }
 
     #[test]
     fn test_uncover() {}
@@ -928,27 +940,35 @@ mod solver_tests {
     fn verify_vertical_circular_invariant() -> Result<(), &'static str> {
         let MAX_ITERATIONS = 1000;
         let mut iteration = 0;
+        let mut rows = 0;
 
         let mut dl = DancingLinks::new();
         dl.init_header_row();
         dl.init_constraint_matrix();
 
-        let header = dl.header.clone().borrow().traverse(Direction::Right)?;
-        let mut current = header.clone().borrow().traverse(Direction::Down)?;
-
-        while !Rc::ptr_eq(&header, &current) {
-            println!("{}", current.clone().borrow());
-            iteration += 1;
-            if iteration == 1000 {
-                return Err("Vertical links hit iteration limit.");
+        let mut header_row = dl.header.clone().borrow().traverse(Direction::Right)?;
+        while !Rc::ptr_eq(&dl.header, &header_row) {
+            rows += 1;
+            let mut current = header_row.clone().borrow().traverse(Direction::Down)?;
+            println!("{}", header_row.clone().borrow());
+            while !Rc::ptr_eq(&header_row, &current) {
+                iteration += 1;
+                if iteration == 10000 {
+                    return Err("Vertical links hit iteration limit.");
+                }
+                let next = {
+                    let node = current.borrow();
+                    node.traverse(Direction::Down)?
+                };
+                current = next;
             }
-            let next = {
-                let node = current.borrow();
-                node.traverse(Direction::Down)?
-            };
-            current = next;
-        }
 
+            assert!(iteration == 9);
+            println!("total rows: {}", rows);
+            iteration = 0;
+            header_row = header_row.clone().borrow().traverse(Direction::Right)?;
+        }
+        println!("{}", iteration);
         Ok(())
     }
 
@@ -1067,8 +1087,8 @@ mod solver_tests {
     #[test]
     fn test_row_circular() {
         let mut dl = DancingLinks::new();
-        // dl = dl.init_header_row();
-        // dl.init_constraint_matrix();
+        dl.init_header_row();
+        dl.init_constraint_matrix();
 
         // assert!(dl.verify_header_row_is_circular().is_ok());
         // println!("{}", node.unwrap().borrow());
@@ -1076,7 +1096,8 @@ mod solver_tests {
         // println!("{:?}", is_vertically_circular);
         // assert!(is_vertically_circular.unwrap());
 
-        // dl.solve();
+        let res = dl.solve().unwrap();
+        println!("{}", res.len())
     }
     #[test]
     fn test_cover_method() {
