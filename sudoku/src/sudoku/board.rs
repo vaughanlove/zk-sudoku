@@ -4,6 +4,8 @@
 // needs to have a set seed.
 use crate::sudoku::error::SudokuError;
 use crate::sudoku::random::*;
+extern crate alloc;
+use alloc::vec::Vec;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
@@ -107,7 +109,6 @@ fn get_cell_indices(start_idx: &usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::panic;
 
     #[test]
     fn test_validate_valid_board() {

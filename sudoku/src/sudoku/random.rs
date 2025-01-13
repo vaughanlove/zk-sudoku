@@ -1,4 +1,4 @@
-use std::num::Wrapping;
+use core::num::Wrapping;
 
 pub struct SimpleRng {
     state: Wrapping<u32>,
