@@ -28,7 +28,7 @@ use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::sudoku::board::Board;
+use crate::core::board::Board;
 
 use core::cell::RefCell;
 use core::fmt::{self, Display};
@@ -38,16 +38,11 @@ use core::ops::Sub;
 use std::println;
 
 #[cfg(not(feature = "std"))]
-#[macro_export]
-macro_rules! println {
-    ($($arg:tt)*) => {
-        // No-op in no_std or custom implementation
-    };
-}
+use crate::println;
 
 type NodeRc = Rc<RefCell<Node>>;
 
-struct Node {
+pub struct Node {
     column_header: Option<NodeRc>,
     up: Option<NodeRc>,
     down: Option<NodeRc>,
@@ -65,6 +60,12 @@ struct RowInfo {
     row: usize,
     col: usize,
     val: usize,
+}
+
+impl RowInfo {
+    fn eq(&self, row: usize, col: usize, val: usize) -> bool {
+        self.row == row && self.col == col && self.val == val
+    }
 }
 #[derive(Copy, Clone)]
 enum Direction {
@@ -305,11 +306,11 @@ impl Node {
     }
 }
 
-struct DancingLinks {
+pub struct DancingLinks {
     header: Rc<RefCell<Node>>,
 }
 impl DancingLinks {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let header = Rc::new(RefCell::new(Node {
             column_header: None,
             up: None,
@@ -332,7 +333,7 @@ impl DancingLinks {
         DancingLinks { header }
     }
     /// This function instantiates the skeleton of the constraint header column and returns the DancingLinks root.
-    fn init_header_row(&self) {
+    pub fn init_header_row(&self) {
         let mut prev = self.header.clone();
         for i in 0..81 {
             // link h to first position
@@ -427,12 +428,11 @@ impl DancingLinks {
             .ok_or("no right link")?;
         // go right
         while (!Rc::ptr_eq(&self.header.clone(), &next.clone())) {
-            next = next
-                .clone()
-                .borrow()
-                .right
-                .clone()
-                .ok_or("right link broken")?;
+            // println!(
+            //     "checking equality between {} and  {}",
+            //     next.clone().borrow().name.as_ref().ok_or("no name")?,
+            //     col_name
+            // );
             if String::eq(
                 next.clone().borrow().name.as_ref().ok_or("no name")?,
                 col_name,
@@ -443,6 +443,12 @@ impl DancingLinks {
                 break;
             }
             count += 1;
+            next = next
+                .clone()
+                .borrow()
+                .right
+                .clone()
+                .ok_or("right link broken")?;
         }
 
         // Header row is not circular
@@ -476,7 +482,7 @@ impl DancingLinks {
         Ok(true)
     }
     // create the empty constraint matrix after initialization
-    fn init_constraint_matrix(&mut self) -> Result<(), &'static str> {
+    pub fn init_constraint_matrix(&mut self) -> Result<(), &'static str> {
         let mut column_header_vec: Vec<Rc<RefCell<Node>>> = Vec::with_capacity(81 * 4 + 1);
 
         let mut current = self
@@ -685,8 +691,15 @@ impl DancingLinks {
         column_node.restore_to_neighbors(Direction::Right)?;
         Ok(())
     }
-    fn solve(&self) -> Result<Vec<Rc<RefCell<Node>>>, &'static str> {
+    pub fn solve(&self) -> Result<Vec<Rc<RefCell<Node>>>, &'static str> {
         let mut solution = Vec::new();
+        self.search(&mut solution)
+    }
+    pub fn solve_with_partial(
+        &self,
+        board: &Board,
+    ) -> Result<Vec<Rc<RefCell<Node>>>, &'static str> {
+        let mut solution = self.from_sudoku_board(board)?;
         self.search(&mut solution)
     }
     fn search(
@@ -699,8 +712,6 @@ impl DancingLinks {
         ) {
             return Ok(solution.clone());
         }
-
-        println!("{}", solution.len());
 
         // Choose column with minimum size
         let chosen_column = {
@@ -721,26 +732,19 @@ impl DancingLinks {
             }
             min_column.ok_or("No column available")?
         };
-        println!(
-            "Selected column: {}, size: {}",
-            chosen_column
-                .borrow()
-                .name
-                .as_ref()
-                .unwrap_or(&"unnamed".to_string()),
-            chosen_column.get_size()?
-        );
+        // println!(
+        //     "Selected column: {}, size: {}",
+        //     chosen_column
+        //         .borrow()
+        //         .name
+        //         .as_ref()
+        //         .unwrap_or(&"unnamed".to_string()),
+        //     chosen_column.get_size()?
+        // );
         self.cover(chosen_column.clone())?;
-        println!("{}", self);
         let mut row = chosen_column.borrow().traverse(Direction::Down)?;
-        println!(
-            "Row ptr == column ptr: {}",
-            Rc::ptr_eq(&chosen_column, &row)
-        );
-        println!("Row node info: {}", row.borrow().debug_column_info());
         while !Rc::ptr_eq(&chosen_column, &row) {
             solution.push(row.clone());
-            println!("Processing row at depth {}", solution.len());
             // Cover columns in row
             let mut row_ele = row.clone();
             loop {
@@ -784,19 +788,127 @@ impl DancingLinks {
         Err("No solution found")
     }
 
-    // // go cell by cell in the 9x9 sudoku board (represented as a 81 element array)
-    // for each cell, generate 9 rows to represent [1,9].
-    // 729 total rows (9 elements) * (81 positions)
-    // fill in constraint columns according to rules.
-    // assumes a valid sudoku board going in.
-    fn from_sudoku_board(mut self, board: Board) -> Self {
-        let mut starting_idx = 0;
-        for cell in board.cells {
-            println!("{:?}", cell);
+    // fn from_sudoku_board(&self, board: &Board) -> Result<(), &'static str> {
+    //     // need to check that the board is valid - even if incomplete
+    //     // assert!(board.validate());
+
+    //     for (index, value) in board.cells.iter().enumerate() {
+    //         let row = index / 9;
+    //         let col = index % 9;
+    //         if value.clone() != 0 {
+    //             // println!("row: {}, col: {}, value: {}", row, col, value);
+
+    //             // inserting pre-selected rows is equivalent to adding to the solution.
+    //             // locate row corresponding to the row/col/value
+    //             // remove it from the linked list by unlinking up/down for each node and decerementing
+    //             let col_name = format!("R{}C{}", row + 1, col + 1);
+    //             // println!("{}", col_name);
+    //             let header_col = self.get_col(&col_name).unwrap();
+    //             // println!("{}", header_col.borrow());
+    //             let mut row_cell = header_col.with(|node| node.down.clone().unwrap());
+
+    //             // iterate down each row until the row/col/lines up
+    //             while !Rc::ptr_eq(&header_col, &row_cell) {
+    //                 let found_row = row_cell.borrow().row_info.clone().ok_or("test")?.eq(
+    //                     row,
+    //                     col,
+    //                     *value as usize,
+    //                 );
+
+    //                 if found_row {
+    //                     // println!("{}", row_cell.clone().borrow());
+    //                     // row has been found - iterate through and unlink from up/down nodes
+
+    //                     let mut current =
+    //                         row_cell.with(|node| node.right.clone().expect("right link"));
+    //                     loop {
+    //                         let up = current.clone().borrow().up.clone().unwrap();
+    //                         let down = current.clone().borrow().down.clone().unwrap();
+
+    //                         up.borrow_mut().down = Some(down.clone());
+    //                         down.borrow_mut().up = Some(up);
+
+    //                         if let Some(header) = &current.clone().borrow().column_header {
+    //                             println!("decrementing header {}", header.clone().borrow());
+    //                             header.decrement_size()?;
+    //                         }
+    //                         if Rc::ptr_eq(&current, &row_cell) {
+    //                             break;
+    //                         }
+    //                         current = current.with(|node| node.right.clone().expect("right link"));
+    //                     }
+    //                 }
+    //                 row_cell = row_cell.with(|node| node.down.clone().unwrap());
+    //             }
+    //         }
+    //     }
+    //     Ok(())
+    // }
+    fn from_sudoku_board(&self, board: &Board) -> Result<Vec<Rc<RefCell<Node>>>, &'static str> {
+        let mut partial_solution = Vec::new();
+
+        for (index, &value) in board.cells.iter().enumerate() {
+            if value != 0 {
+                let row = index / 9;
+                let col = index % 9;
+
+                // First, find the correct row in the DLX matrix
+                let cell_name = format!("R{}C{}", row + 1, col + 1);
+                let header_col = self.get_col(&cell_name)?;
+                let mut row_node = header_col.borrow().down.clone().ok_or("broken link")?;
+
+                while !Rc::ptr_eq(&header_col, &row_node) {
+                    if let Some(ref info) = row_node.borrow().row_info {
+                        if info.eq(row, col, value as usize) {
+                            // Found our row - add it to solution
+                            partial_solution.push(row_node.clone());
+
+                            // Cover ALL columns this choice affects
+                            self.cover_row(&row_node)?;
+                            break;
+                        }
+                    }
+                    row_node = row_node
+                        .clone()
+                        .borrow()
+                        .down
+                        .clone()
+                        .ok_or("broken link")?;
+                }
+            }
         }
-        self
+
+        Ok(partial_solution)
     }
-    fn to_sudoku_board(solution: Vec<Rc<RefCell<Node>>>) -> Board {
+
+    fn cover_row(&self, row_node: &Rc<RefCell<Node>>) -> Result<(), &'static str> {
+        // Start with the row_node and cover its column
+        if let Some(col_header) = row_node.borrow().column_header.clone() {
+            self.cover(col_header)?;
+        }
+
+        // Move right and cover each column we find
+        let mut current = row_node
+            .clone()
+            .borrow()
+            .right
+            .clone()
+            .ok_or("broken link")?;
+        while !Rc::ptr_eq(&current, row_node) {
+            if let Some(col_header) = current.borrow().column_header.clone() {
+                self.cover(col_header)?;
+            }
+            current = current
+                .clone()
+                .borrow()
+                .right
+                .clone()
+                .ok_or("broken link")?;
+        }
+
+        Ok(())
+    }
+    pub fn to_sudoku_board(solution: Vec<Rc<RefCell<Node>>>) -> Board {
         // let board = Board { cells: Vec::with_capacity(81)}
         let mut cells = [0; 81];
         for s in solution {
@@ -807,7 +919,7 @@ impl DancingLinks {
             let row = row_info.clone().row;
             let col = row_info.clone().col;
             let val = row_info.clone().val;
-            println!("inserting {} into ({}, {})", val, row, col);
+            // println!("inserting {} into ({}, {})", val, row, col);
             cells[row * 9 + col] = (val as u8);
         }
 
@@ -849,14 +961,15 @@ impl Display for Node {
         if self.is_header {
             write!(f, ", Size: {:?}", self.size.ok_or("size is None"))?;
         }
-
-        write!(
-            f,
-            "Row: {}, Col: {}, Val: {}",
-            self.row_info.clone().unwrap().row,
-            self.row_info.clone().unwrap().col,
-            self.row_info.clone().unwrap().val
-        )?;
+        if !self.is_header {
+            write!(
+                f,
+                "Row: {}, Col: {}, Val: {}",
+                self.row_info.clone().unwrap().row,
+                self.row_info.clone().unwrap().col,
+                self.row_info.clone().unwrap().val
+            )?;
+        }
 
         write!(f, "]")
     }
@@ -925,6 +1038,29 @@ impl Display for DancingLinks {
 #[cfg(test)]
 mod solver_tests {
     use super::*;
+
+    #[test]
+    fn board_to_constraint_matrix() {
+        let cells: [u8; 81] = [
+            0, 0, 6, 5, 8, 0, 0, 0, 0, 2, 4, 1, 0, 0, 0, 0, 0, 8, 8, 3, 5, 6, 2, 4, 9, 1, 7, 6, 8,
+            7, 3, 5, 2, 1, 4, 9, 0, 0, 9, 8, 7, 0, 0, 0, 0, 0, 5, 2, 4, 1, 9, 7, 8, 6, 1, 7, 8, 2,
+            4, 3, 6, 9, 5, 5, 6, 0, 0, 9, 8, 2, 0, 0, 0, 0, 0, 7, 6, 5, 8, 3, 1,
+        ];
+        let board = Board { cells };
+
+        let mut dl = DancingLinks::new();
+        dl.init_header_row();
+        dl.init_constraint_matrix();
+        println!("pre-board: {}", board);
+        // dl.from_sudoku_board(&board);
+        // DancingLinks::debug_print(&dl);
+        // let res = dl.solve().unwrap();
+        let res = dl.solve_with_partial(&board).unwrap();
+        // println!("{}", res.len());
+        let solved_board = DancingLinks::to_sudoku_board(res);
+        println!("{}", solved_board);
+        println!("is solved: {}", solved_board.validate());
+    }
     #[test]
     fn test_remove_node_horizontally() -> Result<(), &'static str> {
         let A = Node::new_rc(Some(true), Some("A".to_string()), None, None, false);

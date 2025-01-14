@@ -2,10 +2,15 @@
 
 // board state. assume 9x9 with 3x3 cells.
 // needs to have a set seed.
-use crate::sudoku::error::SudokuError;
-use crate::sudoku::random::*;
+use crate::core::error::SudokuError;
+use crate::core::random::*;
+use core::fmt;
 extern crate alloc;
+use alloc::format;
 use alloc::vec::Vec;
+
+#[cfg(feature = "std")]
+use std::println;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
@@ -35,7 +40,7 @@ impl Board {
     }
 
     // naive sudoku board validator. todo: experiment with making this faster for the zkVM.
-    fn validate(&self) -> bool {
+    pub fn validate(&self) -> bool {
         const CORRECT_SORTED_ROW: [u8; 9] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
         // check rows
@@ -104,6 +109,21 @@ fn get_cell_indices(start_idx: &usize) -> Vec<usize> {
             (0..3).map(move |col| start_idx + row * 9 + col)
         })
         .collect()
+}
+
+impl fmt::Display for Board {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut iteration = 0;
+        write!(f, "\r\n-------------------------------------\n");
+        for s in self.cells {
+            write!(f, "| {} ", s);
+            iteration += 1;
+            if iteration % 9 == 0 {
+                write!(f, "| \r\n-------------------------------------\n");
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
