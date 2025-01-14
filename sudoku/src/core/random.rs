@@ -1,5 +1,8 @@
 use core::num::Wrapping;
 
+extern crate alloc;
+use alloc::vec::Vec;
+
 pub struct SimpleRng {
     state: Wrapping<u32>,
 }
@@ -36,6 +39,15 @@ pub fn generate_unique_array(rng: &mut SimpleRng) -> [u8; 9] {
         array.swap(i, j);
     }
     array
+}
+pub fn generate_random_indices(rng: &mut SimpleRng, size: usize) -> Vec<usize> {
+    let mut indices = Vec::new();
+
+    for i in 0..size {
+        indices.push((rng.next() % 81) as usize);
+    }
+
+    indices
 }
 
 #[cfg(test)]

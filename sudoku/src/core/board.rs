@@ -5,12 +5,26 @@
 use crate::core::error::SudokuError;
 use crate::core::random::*;
 use core::fmt;
+use core::ops::Not;
 extern crate alloc;
 use alloc::format;
+use alloc::vec;
 use alloc::vec::Vec;
 
 #[cfg(feature = "std")]
 use std::println;
+
+#[cfg(not(feature = "std"))]
+use crate::println;
+
+use super::solver;
+use crate::core::solver::DancingLinks;
+
+enum Difficulty {
+    Easy,
+    Medium,
+    Hard,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
@@ -20,14 +34,35 @@ pub struct Board {
 
 impl Board {
     //generate random bytes and Create a sudoku board based on difficulty
-    fn from_seed(seed: u32, difficulty: Option<u8>) -> Self {
-        let difficulty = difficulty.unwrap_or(1);
+    fn from_seed(seed: u32, difficulty: Option<Difficulty>) -> Self {
+        let difficulty = difficulty.unwrap_or(Difficulty::Easy);
+
         let mut rng = SimpleRng::new(seed);
         let random_array = generate_unique_array(&mut rng);
         let mut cells = [0; 81];
         cells[..9].copy_from_slice(&random_array);
 
-        Board { cells: cells }
+        let temp = Board { cells: cells };
+
+        let mut dl = DancingLinks::new();
+        dl.init_header_row();
+        dl.init_constraint_matrix();
+        let sol = dl.solve_with_partial(&temp).unwrap();
+        let mut board = DancingLinks::to_sudoku_board(sol);
+
+        // now remove elements randomly
+        // Create indices 0..81 and shuffle them
+        let count = match difficulty {
+            Difficulty::Easy => 39,
+            Difficulty::Medium => 30,
+            Difficulty::Hard => 23,
+        };
+
+        let random_indices = generate_random_indices(&mut rng, count);
+        for &idx in random_indices.iter().take(count) {
+            board.cells[idx as usize] = 0; // Assuming 0 represents an empty cell
+        }
+        board
     }
 
     fn from_array(data: [u8; 81]) -> Result<Board, SudokuError> {
@@ -37,6 +72,19 @@ impl Board {
         }
 
         Ok(Board { cells: data })
+    }
+
+    fn apply_user_input_to_board(&mut self, user_input: Vec<u8>) -> Result<bool, &'static str> {
+        for (cell, &input) in self.cells.iter_mut().zip(&user_input) {
+            println!("existing node: {}, user inputting: {}", *cell, input);
+            if *cell != 0 && input != *cell {
+                return Err("user input is replacing a pre-defined hint.");
+            }
+
+            *cell = input;
+        }
+
+        Ok(true)
     }
 
     // naive sudoku board validator. todo: experiment with making this faster for the zkVM.
@@ -127,9 +175,61 @@ impl fmt::Display for Board {
 }
 
 #[cfg(test)]
-mod tests {
+mod board_tests {
     use super::*;
 
+    #[test]
+    fn generate_random_board() {
+        let mut board = Board::from_seed(2200, None);
+        println!("{}", board);
+
+        let mut dl = DancingLinks::new();
+        dl.init_header_row();
+        dl.init_constraint_matrix();
+        let sol = dl.solve_with_partial(&board).unwrap();
+
+        let solved_board = DancingLinks::to_sudoku_board(sol);
+        println!("{}", solved_board);
+    }
+
+    #[test]
+    fn test_apply_user_input_to_board() {
+        let mut board = Board::from_seed(2200, None);
+        // This vector represents a valid solution to the puzzle
+        let solution = vec![
+            9, 2, 7, 1, 3, 6, 8, 4, 5, // Row 1
+            1, 3, 4, 2, 5, 8, 6, 7, 9, // Row 2
+            5, 6, 8, 4, 7, 9, 1, 3, 2, // Row 3
+            2, 7, 1, 8, 4, 3, 5, 9, 6, // Row 4
+            6, 5, 3, 9, 2, 1, 4, 8, 7, // Row 5
+            4, 8, 9, 7, 6, 5, 2, 1, 3, // Row 6
+            7, 1, 2, 5, 9, 4, 3, 6, 8, // Row 7
+            8, 9, 6, 3, 1, 2, 7, 5, 4, // Row 8
+            3, 4, 5, 6, 8, 7, 9, 2, 1, // Row 9
+        ];
+        match board.apply_user_input_to_board(solution) {
+            Ok(_) => assert!(
+                board.validate(),
+                "Board should be valid after applying solution"
+            ),
+            Err(e) => panic!("Failed to apply solution: {}", e),
+        }
+    }
+    #[test]
+    #[should_panic(expected = "user tried to overwrite existing board.")]
+    fn test_failure_apply_user_input_to_board() {
+        let mut board = Board::from_seed(2200, None);
+        // Modified first row to conflict with a board hint
+        let invalid_solution = vec![
+            5, 5, 5, 1, 4, 6, 8, 4, 5, 1, 3, 4, 2, 5, 8, 6, 7, 9, 5, 6, 8, 4, 7, 9, 1, 3, 2, 2, 7,
+            1, 8, 4, 3, 5, 9, 6, 6, 5, 3, 9, 2, 1, 4, 8, 7, 4, 8, 9, 7, 6, 5, 2, 1, 3, 7, 1, 2, 5,
+            9, 4, 3, 6, 8, 8, 9, 6, 3, 1, 2, 7, 5, 4, 3, 4, 5, 6, 8, 7, 9, 2, 1,
+        ];
+
+        board
+            .apply_user_input_to_board(invalid_solution)
+            .expect("user tried to overwrite existing board.");
+    }
     #[test]
     fn test_validate_valid_board() {
         let valid_cells: [u8; 81] = [
