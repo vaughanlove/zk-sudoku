@@ -1,0 +1,13 @@
+[package]
+name = "zk_sudoku"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openvm = { git = "https://github.com/openvm-org/openvm.git", features = ["std"] }
+# openvm = {path="../../openvm/crates/toolchain/openvm", features=["std"]}
+sudoku = { path= "../sudoku"}
+
+
+[features]
+std = ["openvm/std"]

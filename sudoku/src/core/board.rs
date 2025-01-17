@@ -5,7 +5,6 @@
 use crate::core::error::SudokuError;
 use crate::core::random::*;
 use core::fmt;
-use core::ops::Not;
 extern crate alloc;
 use alloc::format;
 use alloc::vec;
@@ -20,7 +19,7 @@ use crate::println;
 use super::solver;
 use crate::core::solver::DancingLinks;
 
-enum Difficulty {
+pub enum Difficulty {
     Easy,
     Medium,
     Hard,
@@ -34,7 +33,7 @@ pub struct Board {
 
 impl Board {
     //generate random bytes and Create a sudoku board based on difficulty
-    fn from_seed(seed: u32, difficulty: Option<Difficulty>) -> Self {
+    pub fn from_seed(seed: u32, difficulty: Option<Difficulty>) -> Self {
         let difficulty = difficulty.unwrap_or(Difficulty::Easy);
 
         let mut rng = SimpleRng::new(seed);
@@ -65,7 +64,7 @@ impl Board {
         board
     }
 
-    fn from_array(data: [u8; 81]) -> Result<Board, SudokuError> {
+    pub fn from_array(data: [u8; 81]) -> Result<Board, SudokuError> {
         // check that the data all lies in [0, 9]. 0 represents an empty cell.
         if data.iter().any(|&x| x > 9) {
             return Err(SudokuError::InvalidValue);
@@ -74,7 +73,7 @@ impl Board {
         Ok(Board { cells: data })
     }
 
-    fn apply_user_input_to_board(&mut self, user_input: Vec<u8>) -> Result<bool, &'static str> {
+    pub fn apply_user_input_to_board(&mut self, user_input: Vec<u8>) -> Result<bool, &'static str> {
         for (cell, &input) in self.cells.iter_mut().zip(&user_input) {
             println!("existing node: {}, user inputting: {}", *cell, input);
             if *cell != 0 && input != *cell {
