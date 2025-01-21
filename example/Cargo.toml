@@ -1,0 +1,16 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openvm-sdk = {path = "../../openvm/crates/sdk"}
+openvm = { path = "../../openvm/crates/toolchain/openvm"}
+openvm-build = { path = "../../openvm/crates/toolchain/build"}
+openvm-stark-sdk = { git = "https://github.com/openvm-org/stark-backend.git", rev = "d2788c", default-features = false }
+openvm-transpiler = { path = "../../openvm/crates/toolchain/transpiler"}
+serde = { version = "1.0.201", default-features = false, features = ["derive"] }
+eyre = "0.6.12"
+
+# [features]
+# default = ["parallel"]

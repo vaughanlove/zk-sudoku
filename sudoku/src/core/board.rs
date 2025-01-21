@@ -10,11 +10,11 @@ use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 
-#[cfg(feature = "std")]
-use std::println;
+// #[cfg(feature = "std")]
+// use std::println;
 
-#[cfg(not(feature = "std"))]
-use crate::println;
+// #[cfg(not(feature = "std"))]
+// use crate::println;
 
 use super::solver;
 use crate::core::solver::DancingLinks;
@@ -75,7 +75,7 @@ impl Board {
 
     pub fn apply_user_input_to_board(&mut self, user_input: Vec<u8>) -> Result<bool, &'static str> {
         for (cell, &input) in self.cells.iter_mut().zip(&user_input) {
-            println!("existing node: {}, user inputting: {}", *cell, input);
+            // println!("existing node: {}, user inputting: {}", *cell, input);
             if *cell != 0 && input != *cell {
                 return Err("user input is replacing a pre-defined hint.");
             }
@@ -180,7 +180,7 @@ mod board_tests {
     #[test]
     fn generate_random_board() {
         let mut board = Board::from_seed(2200, None);
-        println!("{}", board);
+        // println!("{}", board);
 
         let mut dl = DancingLinks::new();
         dl.init_header_row();
@@ -188,7 +188,7 @@ mod board_tests {
         let sol = dl.solve_with_partial(&board).unwrap();
 
         let solved_board = DancingLinks::to_sudoku_board(sol);
-        println!("{}", solved_board);
+        // println!("{}", solved_board);
     }
 
     #[test]

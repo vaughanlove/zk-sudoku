@@ -4,11 +4,11 @@ fn main() {
     let mut board = Board::from_seed(666, Some(Difficulty::Medium));
     println!("Board generated! {}", board);
 
-    // let mut dl = DancingLinks::new();
-    // dl.init_header_row();
-    // dl.init_constraint_matrix();
-    // let sol = dl.solve_with_partial(&board).unwrap();
-    // let solution_board = DancingLinks::to_sudoku_board(sol);
+    let mut dl = DancingLinks::new();
+    dl.init_header_row();
+    dl.init_constraint_matrix();
+    let sol = dl.solve_with_partial(&board).unwrap();
+    let solution_board = DancingLinks::to_sudoku_board(sol);
 
     let user_input = vec![
         7, 5, 3, 8, 2, 1, 6, 9, 4, 1, 2, 4, 3, 6, 9, 5, 7, 8, 6, 8, 9, 4, 5, 7, 1, 2, 3, 2, 9, 1,

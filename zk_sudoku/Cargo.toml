@@ -4,10 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-openvm = { git = "https://github.com/openvm-org/openvm.git", features = ["std"] }
-# openvm = {path="../../openvm/crates/toolchain/openvm", features=["std"]}
+# openvm = { git = "https://github.com/openvm-org/openvm.git", features = ["std"] }
+# openvm = {path="../../openvm"/, features=["std"]}
+# openvm-build = {path="../../openvm/crates/toolchain/build"}
+# serde = { version = "1.0.201", default-features = false, features = ["derive"] }
+# openvm-transpiler = { path = "../../openvm/crates/toolchain/transpiler", default-features = false }
+# openvm-sdk = {path="../../openvm/crates/sdk"}
+# openvm-stark-sdk = { git = "https://github.com/openvm-org/stark-backend.git", rev = "47a0bda", default-features = false }
+openvm = { path = "../../openvm/crates/toolchain/openvm" }
+# openvm-sdk = { path = "../../openvm/crates/sdk" }
 sudoku = { path= "../sudoku"}
-
+# eyre = "0.6.12"
 
 [features]
 std = ["openvm/std"]
