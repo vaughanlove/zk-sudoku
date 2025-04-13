@@ -12,7 +12,7 @@ use openvm_sdk::{
 use openvm_stark_sdk::config::FriParameters;
 use openvm_transpiler::elf::Elf;
 use serde::{Deserialize, Serialize};
-
+use std::path::PathBuf;
 #[derive(Serialize, Deserialize)]
 pub struct SomeStruct {
     pub a: u64,
@@ -41,65 +41,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
     // ANCHOR_END: vm_config
 
-    /// to import example guest code in crate replace `target_path` for:
-    /// ```
-    /// use std::path::PathBuf;
-    ///
-    /// let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).to_path_buf();
-    /// path.push("guest");
-    /// let target_path = path.to_str().unwrap();
-    /// ```
-    // ANCHOR: build
-    // 1. Build the VmConfig with the extensions needed.
+    // /// to import example guest code in crate replace `target_path` for:
+    // /// ```
+    // /// use std::path::PathBuf;
+    // ///
+    //  let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).to_path_buf();
+    //  path.pop();
+    //  path.push("zk_sudoku");
+    //  let target_path = path.to_str().unwrap();
+    //  // ```
+    // // ANCHOR: build
+    // // 1. Build the VmConfig with the extensions needed.
     let sdk = Sdk;
 
-    // 2a. Build the ELF with guest options and a target filter.
-    let guest_opts = GuestOptions::default();
-    let target_path = "/home/von/openvm-sudoku/zk_sudoku";
-    let elf = sdk.build(guest_opts, target_path, &Default::default())?;
-    // ANCHOR_END: build
+    // // 2a. Build the ELF with guest options and a target filter.
+    // let guest_opts = GuestOptions::default();
+    // // let target_path = "/home/von/openvm-sudoku/zk_sudoku";
+    // let elf = sdk.build(guest_opts, target_path, &Default::default())?;
+    // // ANCHOR_END: build
 
-    // ANCHOR: transpilation
-    // 3. Transpile the ELF into a VmExe
-    let exe = sdk.transpile(elf, vm_config.transpiler())?;
-    // ANCHOR_END: transpilation
+    // // ANCHOR: transpilation
+    // // 3. Transpile the ELF into a VmExe
+    // let exe = sdk.transpile(elf, vm_config.transpiler())?;
+    // // ANCHOR_END: transpilation
 
-    // ANCHOR: execution
-    // 4. Format your input into StdIn
-    let my_input = SomeStruct { a: 1, b: 2 }; // anything that can be serialized
-    let mut stdin = StdIn::default();
-    stdin.write(&my_input);
+    // // ANCHOR: execution
+    // // 4. Format your input into StdIn
+    // let my_input = SomeStruct { a: 1, b: 2 }; // anything that can be serialized
+    // let mut stdin = StdIn::default();
+    // stdin.write(&my_input);
 
-    // 5. Run the program
-    let output = sdk.execute(exe.clone(), vm_config.clone(), stdin.clone())?;
-    println!("public values output: {:?}", output);
-    // ANCHOR_END: execution
+    // // 5. Run the program
+    // let output = sdk.execute(exe.clone(), vm_config.clone(), stdin.clone())?;
+    // println!("public values output: {:?}", output);
+    // // ANCHOR_END: execution
 
-    // ANCHOR: proof_generation
-    // 6. Set app configuration
-    let app_log_blowup = 2;
+
+    // // ANCHOR: proof_generation
+    // // 6. Set app configuration
+   let app_log_blowup = 2;
     let app_fri_params = FriParameters::standard_with_100_bits_conjectured_security(app_log_blowup);
     let app_config = AppConfig::new(app_fri_params, vm_config);
+    // println!("app configured");
+    // // 7. Commit the exe
+    // let app_committed_exe = sdk.commit_app_exe(app_fri_params, exe)?;
 
-    // 7. Commit the exe
-    let app_committed_exe = sdk.commit_app_exe(app_fri_params, exe)?;
-
+    // println!("app commited");
     // 8. Generate an AppProvingKey
     let app_pk = Arc::new(sdk.app_keygen(app_config)?);
 
-    // 9a. Generate a proof
-    let proof = sdk.generate_app_proof(app_pk.clone(), app_committed_exe.clone(), stdin.clone())?;
-    // 9b. Generate a proof with an AppProver with custom fields
-    let app_prover = AppProver::new(app_pk.app_vm_pk.clone(), app_committed_exe.clone())
-        .with_program_name("test_program");
-    let proof = app_prover.generate_app_proof(stdin.clone());
-    // ANCHOR_END: proof_generation
+    // // 9a. Generate a proof
+    // println!("about to generate a proof");
+    // let proof = sdk.generate_app_proof(app_pk.clone(), app_committed_exe.clone(), stdin.clone())?;
+    // println!("proof generated");
+    // // 9b. Generate a proof with an AppProver with custom fields
+    // let app_prover = AppProver::new(app_pk.app_vm_pk.clone(), app_committed_exe.clone())
+    //     .with_program_name("test_program");
+    // let proof = app_prover.generate_app_proof(stdin.clone());
+    // // ANCHOR_END: proof_generation
 
-    // ANCHOR: verification
-    // 10. Verify your program
-    let app_vk = app_pk.get_app_vk();
-    sdk.verify_app_proof(&app_vk, &proof)?;
-    // ANCHOR_END: verification
+    // // ANCHOR: verification
+    // // 10. Verify your program
+    // let app_vk = app_pk.get_app_vk();
+    // sdk.verify_app_proof(&app_vk, &proof)?;
+    // // ANCHOR_END: verification
 
     Ok(())
 }

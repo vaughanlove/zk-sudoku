@@ -1,5 +1,7 @@
 use sudoku::core::board::{Board, Difficulty};
 use sudoku::core::solver::DancingLinks;
+
+// basic usage
 fn main() {
     let mut board = Board::from_seed(666, Some(Difficulty::Medium));
     println!("Board generated! {}", board);

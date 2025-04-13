@@ -10,32 +10,27 @@ use alloc::vec::Vec;
 openvm::entry!(main);
 
 fn main() {
-    // reveal(a as u32, 0);
-    // reveal((a >> 32) as u32, 1);
-
-    // each word is
+    // read_vec is a helper function that reads passed input from the hint stream.
     let user_input: Vec<u8> = read_vec();
 
-    // println!("{:?}", user_input);
-
+    // Generate a board from a seed.
     let mut board = Board::from_seed(666, Some(Difficulty::Medium));
 
-    // #[cfg(not(feature = "std"))]
-    // println!("Board generated! {}", board);
-
-    // let mut dl = DancingLinks::new();
-    // dl.init_header_row();
-    // dl.init_constraint_matrix();
-    // let sol = dl.solve_with_partial(&board).unwrap();
-    // let solution_board = DancingLinks::to_sudoku_board(sol);
+    let mut dl = DancingLinks::new();
+    dl.init_header_row();
+    dl.init_constraint_matrix();
+    let sol = dl.solve_with_partial(&board).unwrap();
+    let solution_board = DancingLinks::to_sudoku_board(sol);
 
     // unless you unwrap this, the execution doesn't panic.
-    // board.apply_user_input_to_board(user_input);
+    board.apply_user_input_to_board(user_input);
+    
     // #[cfg(not(feature = "std"))]
     // println!("User playing board {}", board);
 
     // let valid = board.validate();
     let valid = false;
+    
     // #[cfg(not(feature = "std"))]
     // println!("user solution is {}", valid);
 

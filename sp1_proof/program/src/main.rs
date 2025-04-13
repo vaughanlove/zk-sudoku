@@ -21,23 +21,6 @@ pub fn main() {
     // from the prover.
     let n = sp1_zkvm::io::read::<u32>();
     let user_input =  sp1_zkvm::io::read::<Vec<u8>>();
-    println!("in guest program n: {}", &n);
-    // // Compute the n'th fibonacci number using a function from the workspace lib crate.
-    // let (a, b) = fibonacci(n);
-
-    // // Encode the public values of the program.
-    // let bytes = PublicValuesStruct::abi_encode(&PublicValuesStruct { n, a, b });
-
-    // // Commit to the public values of the program. The final proof will have a commitment to all the
-    // // bytes that were committed to.
-    // sp1_zkvm::io::commit_slice(&bytes);
-    // let user_input: Vec<u8> = read_vec();
-
-    // let user_input = vec![
-    //     7, 5, 3, 8, 2, 1, 6, 9, 4, 1, 2, 4, 3, 6, 9, 5, 7, 8, 6, 8, 9, 4, 5, 7, 1, 2, 3, 2, 9, 1,
-    //     5, 7, 3, 8, 4, 6, 8, 4, 7, 2, 1, 6, 9, 3, 5, 5, 3, 6, 9, 4, 8, 2, 1, 7, 3, 7, 2, 1, 8, 5,
-    //     4, 6, 9, 4, 6, 5, 7, 9, 2, 3, 8, 1, 9, 1, 8, 6, 3, 4, 7, 5, 2,
-    // ];
 
     println!("{:?}", user_input);
 

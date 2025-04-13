@@ -11,6 +11,7 @@ openvm-stark-sdk = { git = "https://github.com/openvm-org/stark-backend.git", re
 openvm-transpiler = { path = "../../openvm/crates/toolchain/transpiler"}
 serde = { version = "1.0.201", default-features = false, features = ["derive"] }
 eyre = "0.6.12"
+zk_sudoku = { path = "../zk_sudoku"}
 
 # [features]
 # default = ["parallel"]
