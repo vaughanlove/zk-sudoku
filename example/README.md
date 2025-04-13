@@ -1,0 +1,1 @@
+old example moved to `openvm_proof` but worth keeping for now. 
